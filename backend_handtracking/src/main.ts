@@ -12,6 +12,7 @@ import { OpponentAI, plannedReturn, serveShot, magnetReturnShot } from "./ai";
 import { newMatch, pointWon } from "./rules";
 import type { MatchState } from "./rules";
 import { bindUI, flashBanner, setPower, setStatus, setupStartModal, showEnd, updateHUD } from "./ui";
+import { submitScore, hasSupabase, getSessionDisplayName } from "./lib/supabase";
 
 type AppState = {
   cfg: MatchConfig;
@@ -25,6 +26,13 @@ type AppState = {
 
 // Probability the CPU deliberately whiffs each incoming ball — keeps matches winnable.
 const CPU_MISS_RATE = 0.22;
+
+// Cached display name for logged-in players. Fetched once at startup so the
+// game-over hook can auto-submit without awaiting.
+let cachedDisplayName: string | null = null;
+void getSessionDisplayName().then((n) => {
+  cachedDisplayName = n;
+});
 
 async function main() {
   const stage = document.getElementById("stage") as HTMLDivElement;
@@ -77,6 +85,10 @@ function startMatch(bundle: SceneBundle, ui: any, trackers: Trackers, cfg: Match
     lastPoint: performance.now(),
     hitCooldown: 0,
   };
+
+  // Guard: showEnd should only wire handlers/reset submit UI once per match,
+  // not every frame the loop sees match.gameOver === true.
+  let endHandled = false;
 
   // PIP canvas setup — skeleton overlay for the webcam feed.
   const pipCtx = ui.pipCanvas.getContext("2d")!;
@@ -271,16 +283,36 @@ function startMatch(bundle: SceneBundle, ui: any, trackers: Trackers, cfg: Match
     bundle.renderer.render(bundle.scene, bundle.camera);
 
     // Check for match completion.
-    if (match.gameOver) {
+    if (match.gameOver && !endHandled) {
+      endHandled = true;
       const userWon = match.winner === 0;
-      showEnd(ui, userWon, [...match.score] as [number, number], () => {
-        // Restart same config.
-        const m = newMatch(cfg);
-        Object.assign(match, m);
-        match.score = m.score;
-        updateHUD(ui, match);
-        resetRally(app, bundle, ai);
-      });
+      const finalScore = [...match.score] as [number, number];
+      showEnd(
+        ui,
+        userWon,
+        finalScore,
+        () => {
+          // Restart same config.
+          const m = newMatch(cfg);
+          Object.assign(match, m);
+          match.score = m.score;
+          updateHUD(ui, match);
+          resetRally(app, bundle, ai);
+          endHandled = false;
+        },
+        {
+          canSubmit: hasSupabase,
+          offlineReason: "Leaderboard offline — add VITE_SUPABASE_* to .env",
+          autoSubmitName: cachedDisplayName,
+          onSubmit: async (name: string) =>
+            submitScore({
+              game: "pong",
+              player: name,
+              score: finalScore[0],
+              combo: finalScore[0] - finalScore[1],
+            }),
+        },
+      );
     }
 
     requestAnimationFrame(tick);

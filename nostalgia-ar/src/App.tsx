@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import Hero from "./components/Hero";
 import Portal from "./components/Portal";
 import Streaks from "./components/Streaks";
@@ -6,7 +7,12 @@ import Particles from "./components/Particles";
 import GameCard from "./components/GameCard";
 import PaddleProp from "./components/PaddleProp";
 import FruitProp from "./components/FruitProp";
+import SignIn from "./components/SignIn";
+import Leaderboard from "./components/Leaderboard";
 import type { Phase } from "./phase";
+import { supabase } from "./lib/supabase";
+
+type View = "lobby" | "leaderboard";
 
 // Game launch URLs — overridable via env at build time for Vercel deploy.
 // Defaults to relative paths so they can be configured via Vercel rewrites.
@@ -20,8 +26,24 @@ const SHOW_GRAIN = true;
 
 export default function App() {
   const [phase, setPhase] = useState<Phase>("idle");
+  const [showSignIn, setShowSignIn] = useState(false);
+  const [view, setView] = useState<View>("lobby");
+  const [session, setSession] = useState<Session | null>(null);
   const mouse = useRef({ x: 0.5, y: 0.5 });
   const timersRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
+      setSession(next);
+      if (next) setShowSignIn(false);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  const signOut = async () => {
+    await supabase.auth.signOut();
+  };
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
@@ -68,6 +90,7 @@ export default function App() {
 
   return (
     <>
+      {showSignIn && <SignIn onClose={() => setShowSignIn(false)} />}
       <div className="stage" data-phase={stagePhase}>
         <div className="wash-cyan" />
         <div className="wash-pink" />
@@ -85,35 +108,45 @@ export default function App() {
 
         {/* TOP HUD */}
         <div className="hud top">
-          <div className="brand">
-            <span className="mark" />
-            <span>NOSTALGIA · AR</span>
-          </div>
-          <div className="nav">
-            <a className="on" href="#">
-              Lobby
-            </a>
-            <a href="#">Cabinets</a>
-            <a href="#">How it works</a>
-            <a href="#">About</a>
-          </div>
           <div className="meta">
             <span className="dot-live" />
             <span>STAGE · LIVE</span>
-            <span style={{ opacity: 0.5 }}>·</span>
-            <span>v0.4.2</span>
           </div>
+          <div className="nav">
+            <a
+              className={view === "lobby" && phase !== "select" ? "on" : ""}
+              href="#"
+              onClick={(e) => { e.preventDefault(); setView("lobby"); reset(); }}
+            >
+              Lobby
+            </a>
+            <a
+              className={view === "leaderboard" ? "on" : ""}
+              href="#"
+              onClick={(e) => { e.preventDefault(); setView("leaderboard"); }}
+            >
+              Leaderboard
+            </a>
+          </div>
+          {session ? (
+            <UserChip session={session} onSignOut={signOut} />
+          ) : (
+            <button className="btn-ghost" onClick={() => setShowSignIn(true)}>Sign In</button>
+          )}
         </div>
 
         {/* HERO */}
-        {phase !== "select" && <Hero phase={phase} onPlay={startPortal} />}
+        {phase !== "select" && view === "lobby" && <Hero phase={phase} onPlay={startPortal} />}
 
         {/* PORTAL + STREAKS */}
         <Portal phase={phase} />
         <Streaks active={phase === "dolly"} count={48} />
 
+        {/* LEADERBOARD */}
+        {view === "leaderboard" && <Leaderboard onClose={() => setView("lobby")} />}
+
         {/* SELECTION */}
-        <div className={"select-screen" + (phase === "select" ? " visible" : "")}>
+        <div className={"select-screen" + (phase === "select" && view === "lobby" ? " visible" : "")}>
           <GameCard
             index={1}
             accent="cyan"
@@ -142,17 +175,6 @@ export default function App() {
           />
         </div>
 
-        {/* BACK */}
-        {phase === "select" && (
-          <button
-            className="btn-ghost"
-            style={{ position: "absolute", top: 22, right: 32, zIndex: 25 }}
-            onClick={reset}
-          >
-            ← LOBBY
-          </button>
-        )}
-
         {/* WHITE BLOOM FLASH */}
         <div
           className="bloom"
@@ -160,7 +182,7 @@ export default function App() {
         />
 
         {/* BOTTOM HUD */}
-        {phase !== "select" && (
+        {phase !== "select" && view === "lobby" && (
           <div className="hud bot">
             <div className="meta">
               <span>SIGNAL</span>
@@ -179,5 +201,34 @@ export default function App() {
         )}
       </div>
     </>
+  );
+}
+
+function UserChip({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
+  const user = session.user;
+  const meta = (user.user_metadata ?? {}) as {
+    full_name?: string;
+    name?: string;
+    avatar_url?: string;
+    picture?: string;
+  };
+  const name = meta.full_name || meta.name || user.email?.split("@")[0] || "Player";
+  const avatar = meta.avatar_url || meta.picture;
+  const first = name.split(" ")[0];
+
+  return (
+    <div className="user-chip">
+      {avatar ? (
+        <img src={avatar} alt="" className="user-chip-avatar" referrerPolicy="no-referrer" />
+      ) : (
+        <div className="user-chip-avatar user-chip-avatar-fallback">
+          {first.charAt(0).toUpperCase()}
+        </div>
+      )}
+      <span className="user-chip-name">{first}</span>
+      <button className="user-chip-out" onClick={onSignOut} aria-label="Sign out" title="Sign out">
+        ⎋
+      </button>
+    </div>
   );
 }
