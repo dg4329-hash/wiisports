@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fruit Ninja · Hand Tracking</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Epilogue:wght@700;800;900&family=Plus+Jakarta+Sans:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --surface: #1f1006;
+        --surface-container: #2d1c11;
+        --surface-container-low: #28180d;
+        --surface-container-high: #38261a;
+        --on-surface: #fcdcca;
+        --primary: #ffb4aa;
+        --primary-container: #ff5545;
+        --secondary: #55e16b;
+        --tertiary: #ffb874;
+        --error: #ffb4ab;
+        --outline: #ad8883;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body {
+        height: 100%;
+        width: 100%;
+        overflow: hidden;
+        background: var(--surface);
+        color: var(--on-surface);
+        font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+        user-select: none;
+        cursor: none;
+      }
+      #wood {
+        position: fixed;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(31, 16, 6, 0.82), rgba(31, 16, 6, 0.82)),
+          url("https://lh3.googleusercontent.com/aida-public/AB6AXuApzG2ykChaT1ffta7VF2SzxKZgvBilebz6sMEimFGG5iHFNPQ6m1VVFBObbqYz_g0pq48f9ShiDQlexxbvpvBHd7-1iCsgCUyrBkUfQPENAH4e47lt_lZ8v0SWkzBNDa_qAxEzub2NRKwNDJ4yvTXgNPXfrBjiTN5_mZnDcV1lQuFsEnOeQL6zBWhC3SwqA12StD_2LWWV2oaeq6FUJ_XTBFgfkgjz8DjTW5xnxRcqNcifgMhGVAVcT_W7e_vCkwb4L2d_vp8mZZI");
+        background-size: cover;
+        background-position: center;
+        background-blend-mode: multiply;
+      }
+      #game {
+        position: fixed;
+        inset: 0;
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      /* Top bar */
+      .topbar {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        padding: 20px 32px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        pointer-events: none;
+        z-index: 20;
+      }
+      .title {
+        font-family: "Epilogue", sans-serif;
+        font-weight: 900;
+        color: #fff;
+        font-size: 28px;
+        letter-spacing: -0.03em;
+        font-style: italic;
+        text-transform: uppercase;
+        text-shadow: 0 4px 0 rgba(0, 0, 0, 0.5);
+      }
+      .subtitle {
+        font-family: "Epilogue", sans-serif;
+        font-weight: 700;
+        color: var(--primary);
+        font-size: 11px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        margin-top: 2px;
+        opacity: 0.8;
+      }
+
+      /* Score panel */
+      .score-panel {
+        position: fixed;
+        top: 80px;
+        left: 32px;
+        background: rgba(0, 0, 0, 0.35);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 14px;
+        padding: 14px 18px;
+        z-index: 20;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+      }
+      .score-label {
+        font-family: "Plus Jakarta Sans", sans-serif;
+        font-weight: 700;
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        color: var(--secondary);
+        text-transform: uppercase;
+      }
+      .score-value {
+        font-family: "Epilogue", sans-serif;
+        font-weight: 900;
+        font-size: 44px;
+        line-height: 1;
+        color: #fff;
+        margin-top: 4px;
+        text-shadow: 0 3px 0 rgba(0, 0, 0, 0.4);
+      }
+
+      /* Lives */
+      .lives {
+        position: fixed;
+        top: 80px;
+        right: 32px;
+        display: flex;
+        gap: 10px;
+        z-index: 20;
+      }
+      .life {
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.25);
+        backdrop-filter: blur(6px);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+      }
+      .life .material-symbols-outlined {
+        font-size: 30px;
+        color: var(--primary);
+        filter: drop-shadow(0 0 10px rgba(255, 180, 170, 0.8));
+        font-variation-settings: "FILL" 1;
+      }
+      .life.lost .material-symbols-outlined {
+        color: rgba(255, 180, 170, 0.25);
+        filter: none;
+      }
+
+      /* Combo */
+      .combo {
+        position: fixed;
+        bottom: 44px;
+        left: 32px;
+        font-family: "Epilogue", sans-serif;
+        font-weight: 800;
+        font-style: italic;
+        font-size: 44px;
+        color: var(--primary-container);
+        text-shadow: 0 4px 0 rgba(0, 0, 0, 0.5);
+        z-index: 20;
+        pointer-events: none;
+        opacity: 0;
+        transform: translateY(6px) scale(0.9);
+        transition: opacity 0.15s ease, transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+      }
+      .combo.show {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+
+      /* Webcam preview */
+      .cam-preview {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        width: 240px;
+        height: 180px;
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow:
+          0 0 0 2px rgba(255, 255, 255, 0.08),
+          0 20px 50px rgba(0, 0, 0, 0.55);
+        z-index: 20;
+        background: #000;
+      }
+      .cam-inner {
+        position: absolute;
+        inset: 0;
+        transform: scaleX(-1);
+      }
+      .cam-preview video,
+      .cam-preview canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .cam-label {
+        position: absolute;
+        top: 6px;
+        left: 8px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.15em;
+        color: #fff;
+        text-transform: uppercase;
+        background: rgba(0, 0, 0, 0.5);
+        padding: 3px 8px;
+        border-radius: 6px;
+        z-index: 2;
+        font-family: "Plus Jakarta Sans", sans-serif;
+      }
+
+      /* Overlays (start / game-over) */
+      .overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.55);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        z-index: 30;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+      }
+      .overlay.show {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .card {
+        background: linear-gradient(180deg, rgba(45, 28, 17, 0.95), rgba(31, 16, 6, 0.95));
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 22px;
+        padding: 40px 48px;
+        text-align: center;
+        box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+        max-width: 560px;
+      }
+      .card h1 {
+        font-family: "Epilogue", sans-serif;
+        font-weight: 900;
+        font-size: 56px;
+        font-style: italic;
+        letter-spacing: -0.03em;
+        color: #fff;
+        text-transform: uppercase;
+        text-shadow: 0 5px 0 rgba(0, 0, 0, 0.5);
+        margin-bottom: 8px;
+      }
+      .card h1.danger { color: var(--primary-container); }
+      .card p.tag {
+        color: var(--secondary);
+        font-weight: 700;
+        font-size: 12px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+      }
+      .card p.body {
+        color: #e7bdb7;
+        font-size: 16px;
+        margin: 18px 0 26px;
+        line-height: 1.5;
+      }
+      .card .final-score {
+        font-family: "Epilogue", sans-serif;
+        font-weight: 900;
+        font-size: 72px;
+        line-height: 1;
+        color: var(--secondary);
+        text-shadow: 0 4px 0 rgba(0, 0, 0, 0.4);
+        margin: 14px 0 22px;
+      }
+      .card .stats {
+        display: flex;
+        gap: 24px;
+        justify-content: center;
+        margin-bottom: 24px;
+      }
+      .stat {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      .stat .k {
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        color: #ad8883;
+        text-transform: uppercase;
+        font-weight: 700;
+      }
+      .stat .v {
+        font-family: "Epilogue", sans-serif;
+        font-weight: 800;
+        font-size: 28px;
+        color: #fff;
+      }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        background: var(--primary-container);
+        color: #fff;
+        font-family: "Epilogue", sans-serif;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        padding: 14px 28px;
+        border-radius: 999px;
+        border: none;
+        cursor: pointer;
+        font-size: 16px;
+        box-shadow: 0 6px 0 #930005, 0 12px 30px rgba(255, 85, 69, 0.4);
+        transition: transform 0.08s ease, box-shadow 0.08s ease;
+      }
+      .btn:hover { transform: translateY(-1px); }
+      .btn:active {
+        transform: translateY(4px);
+        box-shadow: 0 2px 0 #930005, 0 4px 12px rgba(255, 85, 69, 0.3);
+      }
+      .hint {
+        font-size: 12px;
+        color: #8f6e68;
+        margin-top: 14px;
+        letter-spacing: 0.08em;
+      }
+
+      /* Status pill */
+      .status {
+        position: fixed;
+        top: 28px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.55);
+        color: #fff;
+        padding: 8px 14px;
+        border-radius: 999px;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        z-index: 40;
+        backdrop-filter: blur(6px);
+        font-family: "Plus Jakarta Sans", sans-serif;
+        font-weight: 700;
+      }
+      .status.hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <div id="wood"></div>
+    <canvas id="game"></canvas>
+
+    <div class="topbar">
+      <div>
+        <div class="title">Fruit Ninja</div>
+        <div class="subtitle">Hand Tracked · Sensei Mode</div>
+      </div>
+    </div>
+
+    <div class="score-panel" id="scorePanel" style="display:none;">
+      <div class="score-label">Score</div>
+      <div class="score-value" id="scoreValue">0</div>
+    </div>
+
+    <div class="lives" id="lives" style="display:none;">
+      <div class="life" data-idx="0"><span class="material-symbols-outlined">favorite</span></div>
+      <div class="life" data-idx="1"><span class="material-symbols-outlined">favorite</span></div>
+      <div class="life" data-idx="2"><span class="material-symbols-outlined">favorite</span></div>
+    </div>
+
+    <div class="combo" id="combo">COMBO x2!</div>
+
+    <div class="cam-preview" id="camPreview" style="display:none;">
+      <div class="cam-label">Hand Tracker</div>
+      <div class="cam-inner">
+        <video id="cam" autoplay playsinline muted></video>
+        <canvas id="camOverlay"></canvas>
+      </div>
+    </div>
+
+    <div class="status" id="status">initializing hand tracker…</div>
+
+    <div class="overlay show" id="startOverlay">
+      <div class="card">
+        <p class="tag">Sensei's Dojo</p>
+        <h1>Fruit Ninja</h1>
+        <p class="body">
+          Make a <b>scissor gesture</b> — index &amp; middle finger up, ring &amp; pinky curled —
+          and swipe to slice the fruit. Avoid the bombs. You have <b>3 lives</b>.<br />
+          <span style="color:#ad8883;font-size:13px;">
+            Your blade only cuts while the gesture is held. Either hand works.
+          </span>
+        </p>
+        <button class="btn" id="startBtn">
+          <span class="material-symbols-outlined">swords</span>
+          Begin
+        </button>
+        <div class="hint">camera access required</div>
+      </div>
+    </div>
+
+    <div class="overlay" id="gameOverOverlay">
+      <div class="card">
+        <p class="tag">Round Complete</p>
+        <h1 class="danger">Game Over</h1>
+        <div class="final-score" id="finalScore">0</div>
+        <div class="stats">
+          <div class="stat"><span class="k">Fruits Sliced</span><span class="v" id="statSliced">0</span></div>
+          <div class="stat"><span class="k">Best Combo</span><span class="v" id="statCombo">0</span></div>
+          <div class="stat"><span class="k">Bombs Hit</span><span class="v" id="statBombs">0</span></div>
+        </div>
+        <button class="btn" id="restartBtn">
+          <span class="material-symbols-outlined">replay</span>
+          Play Again
+        </button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
