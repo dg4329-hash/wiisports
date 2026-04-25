@@ -378,12 +378,12 @@ function drawPip(
   playingHand: "Left" | "Right",
 ): void {
   const w = canvas.width, h = canvas.height;
-  ctx.save();
-  // Mirror for a selfie feel.
-  ctx.translate(w, 0);
-  ctx.scale(-1, 1);
-  ctx.drawImage(video, 0, 0, w, h);
-  ctx.restore();
+  // Pure black background — only the skeleton/tracking overlay is rendered.
+  // Skeleton drawing below already mirrors x via `mx = (1 - x) * w`, so no canvas-level
+  // mirroring transform is needed here.
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, w, h);
+  void video;
   // Skeleton overlay on the mirrored image — since our landmarks are in unmirrored video coords,
   // we need to mirror the X when drawing.
   const mx = (x: number) => (1 - x) * w;

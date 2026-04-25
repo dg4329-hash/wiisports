@@ -254,6 +254,9 @@
         height: 100%;
         object-fit: cover;
       }
+      /* Hide the raw webcam frame — only the skeleton/tracking overlay paints on top of
+         the wrapper's black background. Cleaner UI, removes "looking at yourself" friction. */
+      .cam-preview video { visibility: hidden; }
       .cam-label {
         position: absolute;
         top: 6px;
