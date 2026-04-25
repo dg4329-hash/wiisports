@@ -1,5 +1,6 @@
 import { HandTracker } from "./tracking";
 import { FruitNinjaGame } from "./game";
+import { submitScore, hasSupabase, getSessionDisplayName } from "./lib/supabase";
 
 const $ = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
@@ -19,10 +20,86 @@ const statSliced = $<HTMLSpanElement>("statSliced");
 const statCombo = $<HTMLSpanElement>("statCombo");
 const statBombs = $<HTMLSpanElement>("statBombs");
 
+const submitRow = $<HTMLDivElement>("fnSubmitRow");
+const submitName = $<HTMLInputElement>("fnSubmitName");
+const submitBtn = $<HTMLButtonElement>("fnSubmitBtn");
+const submitStatus = $<HTMLParagraphElement>("fnSubmitStatus");
+
 const video = $<HTMLVideoElement>("cam");
 const camOverlay = $<HTMLCanvasElement>("camOverlay");
 const camPreview = $<HTMLDivElement>("camPreview");
 const gameCanvas = $<HTMLCanvasElement>("game");
+
+// Cached signed-in display name. Resolved once at startup so the game-over
+// hook can auto-submit without awaiting.
+let cachedDisplayName: string | null = null;
+void getSessionDisplayName().then((n) => {
+  cachedDisplayName = n;
+});
+
+const setSubmitStatus = (text: string, kind: "" | "success" | "error" = "") => {
+  submitStatus.textContent = text;
+  submitStatus.classList.remove("success", "error");
+  if (kind) submitStatus.classList.add(kind);
+};
+
+const wireSubmitFlow = (summary: { score: number; bestCombo: number }) => {
+  let submitted = false;
+  submitBtn.disabled = false;
+  submitName.disabled = false;
+  submitRow.style.display = "";
+  setSubmitStatus("");
+
+  const runSubmit = async (name: string) => {
+    if (submitted) return;
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setSubmitStatus("Enter a name first", "error");
+      submitName.focus();
+      return;
+    }
+    submitBtn.disabled = true;
+    submitName.disabled = true;
+    setSubmitStatus("Submitting…");
+    const result = await submitScore({
+      game: "fruit",
+      player: trimmed,
+      score: summary.score,
+      combo: summary.bestCombo,
+    });
+    if (result.ok) {
+      submitted = true;
+      localStorage.setItem("fn:lastName", trimmed);
+      setSubmitStatus(`Submitted as ${trimmed}`, "success");
+    } else {
+      submitBtn.disabled = false;
+      submitName.disabled = false;
+      setSubmitStatus(result.error, "error");
+    }
+  };
+
+  if (!hasSupabase) {
+    submitRow.style.opacity = "0.5";
+    submitBtn.disabled = true;
+    submitName.disabled = true;
+    setSubmitStatus("Leaderboard offline — missing VITE_SUPABASE_* env", "error");
+    return;
+  }
+  submitRow.style.opacity = "";
+
+  // Signed-in path: hide the input, auto-submit.
+  if (cachedDisplayName) {
+    submitRow.style.display = "none";
+    void runSubmit(cachedDisplayName);
+    return;
+  }
+
+  submitName.value = localStorage.getItem("fn:lastName") ?? "";
+  submitBtn.onclick = () => void runSubmit(submitName.value);
+  submitName.onkeydown = (e) => {
+    if (e.key === "Enter") void runSubmit(submitName.value);
+  };
+};
 
 const setStatus = (text: string | null) => {
   if (text === null) {
@@ -68,6 +145,7 @@ const game = new FruitNinjaGame(gameCanvas, {
     statCombo.textContent = `x${summary.bestCombo}`;
     statBombs.textContent = String(summary.bombsHit);
     gameOverOverlay.classList.add("show");
+    wireSubmitFlow({ score: summary.score, bestCombo: summary.bestCombo });
   },
 });
 

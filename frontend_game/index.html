@@ -412,6 +412,66 @@
         transform: translateX(-1px);
       }
 
+      /* Leaderboard submit row on game over */
+      .submit-row {
+        display: flex;
+        gap: 8px;
+        margin: 14px auto 6px;
+        max-width: 360px;
+      }
+      .submit-row input {
+        flex: 1;
+        padding: 12px 14px;
+        border-radius: 999px;
+        border: 2px solid rgba(255, 85, 69, 0.35);
+        background: rgba(255, 255, 255, 0.9);
+        font-family: "Plus Jakarta Sans", sans-serif;
+        font-size: 14px;
+        font-weight: 600;
+        color: #3a0000;
+        letter-spacing: 0.04em;
+        outline: none;
+        transition: border-color 160ms ease, box-shadow 160ms ease;
+      }
+      .submit-row input:focus {
+        border-color: var(--primary-container);
+        box-shadow: 0 0 0 3px rgba(255, 85, 69, 0.25);
+      }
+      .submit-row button {
+        padding: 10px 22px;
+        border-radius: 999px;
+        border: none;
+        background: var(--primary-container);
+        color: #fff;
+        font-family: "Epilogue", sans-serif;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        font-size: 13px;
+        cursor: pointer;
+        box-shadow: 0 4px 0 #930005, 0 8px 20px rgba(255, 85, 69, 0.35);
+        transition: transform 0.08s ease, box-shadow 0.08s ease, opacity 0.08s ease;
+      }
+      .submit-row button:hover { transform: translateY(-1px); }
+      .submit-row button:active {
+        transform: translateY(3px);
+        box-shadow: 0 1px 0 #930005, 0 3px 10px rgba(255, 85, 69, 0.25);
+      }
+      .submit-row button:disabled {
+        opacity: 0.55;
+        cursor: default;
+        transform: none;
+      }
+      .submit-status {
+        font-size: 12px;
+        color: #8f6e68;
+        margin: 4px 0 10px;
+        letter-spacing: 0.04em;
+        min-height: 1.2em;
+      }
+      .submit-status.success { color: #0a7c2b; font-weight: 700; }
+      .submit-status.error   { color: #b00020; font-weight: 700; }
+
       /* Status pill */
       .status {
         position: fixed;
@@ -502,6 +562,11 @@
           <div class="stat"><span class="k">Best Combo</span><span class="v" id="statCombo">0</span></div>
           <div class="stat"><span class="k">Bombs Hit</span><span class="v" id="statBombs">0</span></div>
         </div>
+        <div class="submit-row" id="fnSubmitRow">
+          <input id="fnSubmitName" maxlength="24" placeholder="Enter your name" autocomplete="off" />
+          <button id="fnSubmitBtn">Submit</button>
+        </div>
+        <p class="submit-status" id="fnSubmitStatus"></p>
         <button class="btn" id="restartBtn">
           <span class="material-symbols-outlined">replay</span>
           Play Again

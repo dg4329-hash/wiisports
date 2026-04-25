@@ -106,15 +106,94 @@ export function setupStartModal(
   });
 }
 
-export function showEnd(ui: UIHandles, userWon: boolean, finalScore: [number, number], onRestart: () => void): void {
+export type SubmitResult = { ok: true } | { ok: false; error: string };
+
+export function showEnd(
+  ui: UIHandles,
+  userWon: boolean,
+  finalScore: [number, number],
+  onRestart: () => void,
+  opts?: {
+    onSubmit?: (name: string) => Promise<SubmitResult>;
+    canSubmit?: boolean;
+    offlineReason?: string;
+    /** If set, the input is hidden and the score is auto-submitted using this name. */
+    autoSubmitName?: string | null;
+  },
+): void {
   ui.endText.innerHTML =
     `<div class="end-title">${userWon ? "MATCH · WON" : "MATCH · LOST"}</div>` +
     `<div class="end-score">${finalScore[0]} — ${finalScore[1]}</div>`;
   ui.endModal.classList.remove("hidden");
+
   const btn = document.getElementById("end-again") as HTMLButtonElement;
   btn.onclick = () => {
     ui.endModal.classList.add("hidden");
     onRestart();
+  };
+
+  // Leaderboard submit wiring.
+  const row = document.getElementById("end-submit-row") as HTMLDivElement | null;
+  const input = document.getElementById("end-submit-name") as HTMLInputElement | null;
+  const submitBtn = document.getElementById("end-submit-btn") as HTMLButtonElement | null;
+  const status = document.getElementById("end-submit-status") as HTMLParagraphElement | null;
+  if (!row || !input || !submitBtn || !status) return;
+
+  const setStatusText = (text: string, kind: "" | "success" | "error" = "") => {
+    status.textContent = text;
+    status.classList.remove("success", "error");
+    if (kind) status.classList.add(kind);
+  };
+
+  // Reset state each time the end screen appears.
+  let submitted = false;
+  submitBtn.disabled = false;
+  input.disabled = false;
+  row.style.display = "";
+  setStatusText("");
+  input.value = localStorage.getItem("pong:lastName") ?? "";
+
+  if (opts?.canSubmit === false || !opts?.onSubmit) {
+    row.style.opacity = "0.5";
+    submitBtn.disabled = true;
+    input.disabled = true;
+    setStatusText(opts?.offlineReason ?? "Leaderboard offline", "error");
+    return;
+  }
+  row.style.opacity = "";
+
+  const doSubmit = async (name: string) => {
+    if (submitted) return;
+    if (!name) {
+      setStatusText("Enter a name first", "error");
+      input.focus();
+      return;
+    }
+    submitBtn.disabled = true;
+    input.disabled = true;
+    setStatusText("Submitting…");
+    const result = await opts.onSubmit!(name);
+    if (result.ok) {
+      submitted = true;
+      localStorage.setItem("pong:lastName", name);
+      setStatusText(`Submitted as ${name}`, "success");
+    } else {
+      submitBtn.disabled = false;
+      input.disabled = false;
+      setStatusText(result.error, "error");
+    }
+  };
+
+  // Auto-submit path for signed-in players: hide the input, push silently.
+  if (opts?.autoSubmitName) {
+    row.style.display = "none";
+    void doSubmit(opts.autoSubmitName);
+    return;
+  }
+
+  submitBtn.onclick = () => void doSubmit(input.value.trim());
+  input.onkeydown = (e) => {
+    if (e.key === "Enter") void doSubmit(input.value.trim());
   };
 }
 

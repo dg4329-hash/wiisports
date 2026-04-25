@@ -363,6 +363,61 @@
       }
       .btn:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(34, 211, 238, 0.25); }
 
+      /* Leaderboard submit row (end modal) */
+      .submit-row {
+        display: flex;
+        gap: 8px;
+        align-items: stretch;
+        margin-top: 18px;
+      }
+      .submit-row input {
+        flex: 1;
+        min-width: 0;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--glass-stroke);
+        border-radius: 10px;
+        padding: 11px 14px;
+        color: var(--text);
+        font-family: inherit;
+        font-size: 13px;
+        letter-spacing: 0.02em;
+        outline: none;
+        transition: border-color 0.15s ease, background 0.15s ease;
+      }
+      .submit-row input::placeholder { color: var(--text-dim); }
+      .submit-row input:focus {
+        border-color: var(--accent-user);
+        background: rgba(127, 220, 255, 0.06);
+      }
+      .btn-sub {
+        margin: 0;
+        padding: 11px 18px;
+        white-space: nowrap;
+        font-family: inherit;
+        font-size: 10px;
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
+        color: var(--text);
+        background: rgba(127, 220, 255, 0.08);
+        border: 1px solid rgba(127, 220, 255, 0.3);
+        border-radius: 10px;
+        cursor: pointer;
+        font-weight: 600;
+        transition: background 0.12s ease;
+      }
+      .btn-sub:hover:not(:disabled) { background: rgba(127, 220, 255, 0.16); }
+      .btn-sub:disabled { opacity: 0.45; cursor: not-allowed; }
+      .submit-status {
+        min-height: 14px;
+        margin: 10px 0 0;
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+      }
+      .submit-status.success { color: #7fd49b; }
+      .submit-status.error { color: #ff9a8f; }
+
       .howto {
         margin-top: 14px;
         padding: 12px 14px;
@@ -539,6 +594,11 @@
     <div class="modal hidden" id="end-modal">
       <div class="card">
         <div id="end-text"></div>
+        <div class="submit-row" id="end-submit-row">
+          <input id="end-submit-name" maxlength="24" placeholder="Your name" autocomplete="off" />
+          <button class="btn-sub" id="end-submit-btn">Submit</button>
+        </div>
+        <p class="submit-status" id="end-submit-status"></p>
         <button class="btn" id="end-again">Play Again</button>
       </div>
     </div>
