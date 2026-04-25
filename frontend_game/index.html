@@ -39,15 +39,24 @@
         user-select: none;
         cursor: none;
       }
+      /* Pure-CSS wood-grain stage — no external image, deploy-safe.
+         Three layers stacked: top warm vignette + faint grain stripes + base dark gradient. */
       #wood {
         position: fixed;
         inset: 0;
-        background-image:
-          linear-gradient(rgba(31, 16, 6, 0.82), rgba(31, 16, 6, 0.82)),
-          url("https://lh3.googleusercontent.com/aida-public/AB6AXuApzG2ykChaT1ffta7VF2SzxKZgvBilebz6sMEimFGG5iHFNPQ6m1VVFBObbqYz_g0pq48f9ShiDQlexxbvpvBHd7-1iCsgCUyrBkUfQPENAH4e47lt_lZ8v0SWkzBNDa_qAxEzub2NRKwNDJ4yvTXgNPXfrBjiTN5_mZnDcV1lQuFsEnOeQL6zBWhC3SwqA12StD_2LWWV2oaeq6FUJ_XTBFgfkgjz8DjTW5xnxRcqNcifgMhGVAVcT_W7e_vCkwb4L2d_vp8mZZI");
-        background-size: cover;
-        background-position: center;
-        background-blend-mode: multiply;
+        background:
+          radial-gradient(ellipse 70% 50% at 50% 30%, rgba(255, 180, 130, 0.10) 0%, transparent 70%),
+          repeating-linear-gradient(96deg,
+            transparent 0px,
+            transparent 26px,
+            rgba(0, 0, 0, 0.28) 26px,
+            rgba(0, 0, 0, 0.28) 28px,
+            transparent 28px,
+            transparent 60px,
+            rgba(0, 0, 0, 0.18) 60px,
+            rgba(0, 0, 0, 0.18) 62px
+          ),
+          linear-gradient(180deg, #2a1810 0%, #1a0d05 70%, #0f0703 100%);
       }
       #game {
         position: fixed;
@@ -55,6 +64,49 @@
         display: block;
         width: 100%;
         height: 100%;
+      }
+
+      /* Play-area frame — visible boundary so the user knows where fruits will appear.
+         Must match the insetX / insetTop / insetBottom values in src/game.ts. */
+      .play-frame {
+        position: fixed;
+        top: 12%; bottom: 16%;
+        left: 16%; right: 16%;
+        border: 1px solid rgba(255, 224, 184, 0.18);
+        border-radius: 22px;
+        box-shadow:
+          inset 0 0 90px rgba(0,0,0,0.55),
+          0 0 60px rgba(255, 200, 150, 0.04);
+        pointer-events: none;
+        z-index: 5;
+      }
+      .play-frame::before, .play-frame::after,
+      .play-frame > .corner-tr, .play-frame > .corner-bl, .play-frame > .corner-br {
+        content: '';
+        position: absolute;
+        width: 28px; height: 28px;
+        border: 2px solid rgba(255, 200, 150, 0.55);
+        pointer-events: none;
+      }
+      .play-frame::before { top: -2px; left: -2px;  border-right: none; border-bottom: none; border-top-left-radius: 22px; }
+      .play-frame::after  { top: -2px; right: -2px; border-left: none;  border-bottom: none; border-top-right-radius: 22px; }
+      .play-frame > .corner-bl { bottom: -2px; left: -2px;  border-right: none; border-top: none; border-bottom-left-radius: 22px; }
+      .play-frame > .corner-br { bottom: -2px; right: -2px; border-left: none;  border-top: none; border-bottom-right-radius: 22px; }
+      .play-frame > .corner-tr { display: none; } /* slot reserved; ::before+::after cover top corners */
+      .play-frame > .frame-label {
+        position: absolute;
+        top: 10px; left: 50%;
+        transform: translateX(-50%);
+        font-family: "Plus Jakarta Sans", sans-serif;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.42em;
+        text-transform: uppercase;
+        color: rgba(255, 200, 150, 0.55);
+        background: rgba(31, 16, 6, 0.5);
+        padding: 4px 12px;
+        border-radius: 999px;
+        backdrop-filter: blur(6px);
       }
 
       /* Top bar */
@@ -357,6 +409,11 @@
   <body>
     <div id="wood"></div>
     <canvas id="game"></canvas>
+    <div class="play-frame">
+      <span class="corner-bl"></span>
+      <span class="corner-br"></span>
+      <span class="frame-label">slice zone</span>
+    </div>
 
     <div class="topbar">
       <div>

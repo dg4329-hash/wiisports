@@ -122,6 +122,12 @@ export class FruitNinjaGame {
 
   private readonly gravity = 850; // px/s^2 — lower = longer airtime
   private readonly trailMs = 260;
+
+  // Play-area inset (fraction of viewport). Fruits/bombs spawn within these bounds so
+  // the user never has to reach the camera-frame edges where hand tracking degrades.
+  private readonly insetX = 0.16;
+  private readonly insetTop = 0.12;
+  private readonly insetBottom = 0.16;
   private readonly comboWindowMs = 700;
 
   constructor(canvas: HTMLCanvasElement, private events: GameEvents) {
@@ -208,17 +214,20 @@ export class FruitNinjaGame {
   }
 
   private randomToss(): { pos: Vec; vel: Vec; angVel: number } {
-    // spawn from bottom offscreen, aim upward into the stage
-    const side = Math.random(); // 0..1 across width
-    const startX = 120 + side * (this.width - 240);
+    // spawn from bottom offscreen, aim upward into the inset stage
+    const marginX = this.width * this.insetX;
+    const playWidth = this.width - 2 * marginX;
+    const side = Math.random(); // 0..1 across playable width
+    const startX = marginX + side * playWidth;
     const startY = this.height + 80;
-    const targetX = startX + (Math.random() - 0.5) * 500;
-    const targetY = this.height * (0.15 + Math.random() * 0.2);
+    // Target apex anywhere in the upper half of the playable area, clamped to the inset.
+    const rawTargetX = startX + (Math.random() - 0.5) * Math.min(500, playWidth * 0.7);
+    const targetX = Math.max(marginX + 40, Math.min(this.width - marginX - 40, rawTargetX));
+    const playHeight = this.height * (1 - this.insetTop - this.insetBottom);
+    const targetY = this.height * this.insetTop + playHeight * (0.05 + Math.random() * 0.25);
     // kinematics: choose upward velocity so apex hits targetY
-    // v0y such that (v0y^2)/(2g) ≈ startY - targetY
     const dy = startY - targetY;
     const v0y = -Math.sqrt(2 * this.gravity * dy);
-    // time to apex: t = |v0y|/g; horizontal velocity
     const tApex = Math.abs(v0y) / this.gravity;
     const v0x = (targetX - startX) / tApex;
     const angVel = (Math.random() - 0.5) * 6.5;
