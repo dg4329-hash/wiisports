@@ -3,123 +3,483 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Pose + Hand Tracker</title>
+    <title>PHANTOM · table tennis</title>
     <style>
+      :root {
+        --bg-0: #04060a;
+        --bg-1: #0a0f18;
+        --accent-user: #22d3ee;
+        --accent-opp: #f472b6;
+        --text-dim: #8b9ab3;
+        --text: #e6edf7;
+        --glass: rgba(12, 18, 28, 0.55);
+        --glass-stroke: rgba(180, 200, 230, 0.12);
+      }
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      html, body { height: 100%; }
+      html, body { height: 100%; width: 100%; overflow: hidden; background: var(--bg-0); }
       body {
-        background: radial-gradient(ellipse at top, #111827 0%, #050608 70%);
-        color: #e5e7eb;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
+        color: var(--text);
+        font-family: "Neue Haas Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
+        letter-spacing: 0.01em;
       }
-      h1 {
-        font-size: 13px;
-        font-weight: 500;
-        letter-spacing: 0.14em;
-        color: #94a3b8;
-        text-transform: uppercase;
-        margin-bottom: 14px;
+
+      #stage {
+        position: fixed;
+        inset: 0;
+        background:
+          radial-gradient(ellipse 80% 60% at 50% 20%, #17223a 0%, #05070d 55%, #000 100%),
+          #000;
       }
-      .wrap {
+      #stage canvas { display: block; }
+
+      /* Scoreboard — top center */
+      .scoreboard {
+        position: fixed;
+        top: 20px;
+        left: 50%;
+        transform: translateX(-50%);
         display: grid;
-        grid-template-columns: auto 360px;
-        gap: 20px;
-        align-items: start;
+        grid-template-columns: auto auto auto;
+        gap: 18px;
+        align-items: center;
+        background: var(--glass);
+        backdrop-filter: blur(14px) saturate(1.2);
+        -webkit-backdrop-filter: blur(14px) saturate(1.2);
+        border: 1px solid var(--glass-stroke);
+        border-radius: 18px;
+        padding: 14px 26px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.55);
+        z-index: 10;
       }
-      .stage {
-        position: relative;
-        width: 640px;
-        height: 480px;
-        background: #000;
+      .scoreboard .side {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        min-width: 120px;
+      }
+      .scoreboard .label {
+        font-size: 10px;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+        margin-bottom: 6px;
+      }
+      .scoreboard .num {
+        font-family: "IBM Plex Mono", ui-monospace, monospace;
+        font-size: 52px;
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+        line-height: 1;
+      }
+      .scoreboard .num.user { color: var(--accent-user); text-shadow: 0 0 24px rgba(34, 211, 238, 0.35); }
+      .scoreboard .num.opp { color: var(--accent-opp); text-shadow: 0 0 24px rgba(244, 114, 182, 0.35); }
+      .scoreboard .divider {
+        width: 1px;
+        height: 48px;
+        background: var(--glass-stroke);
+      }
+
+      /* Subtle rally + serve ticker under scoreboard */
+      .ticker {
+        position: fixed;
+        top: 132px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 24px;
+        z-index: 10;
+        font-size: 11px;
+        letter-spacing: 0.24em;
+        color: var(--text-dim);
+        text-transform: uppercase;
+      }
+      .ticker #serve-indicator[data-side="user"] { color: var(--accent-user); }
+      .ticker #serve-indicator[data-side="opp"] { color: var(--accent-opp); }
+
+      /* Status chip — bottom left */
+      .status-chip {
+        position: fixed;
+        bottom: 22px;
+        left: 22px;
+        padding: 8px 14px;
+        font-size: 10px;
+        letter-spacing: 0.26em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+        background: var(--glass);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--glass-stroke);
+        border-radius: 10px;
+        z-index: 10;
+      }
+      /* Hand-detection chip — under PIP */
+      .hand-chip {
+        position: fixed;
+        top: 195px;
+        right: 22px;
+        padding: 6px 12px;
+        font-size: 10px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: #f1f5f9;
+        background: var(--glass);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--glass-stroke);
+        border-radius: 999px;
+        z-index: 10;
+      }
+      .hand-chip[data-state="ok"] { color: #4ade80; border-color: rgba(74, 222, 128, 0.35); }
+      .hand-chip[data-state="warn"] { color: #fbbf24; border-color: rgba(251, 191, 36, 0.35); }
+      .hand-chip[data-state="off"] { color: #f87171; border-color: rgba(248, 113, 113, 0.35); }
+
+      /* Action prompt — large center-bottom directive */
+      .action-prompt {
+        position: fixed;
+        bottom: 64px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 22px;
+        font-weight: 300;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: #fff;
+        text-shadow: 0 0 26px rgba(127, 220, 255, 0.5);
+        z-index: 10;
+        padding: 14px 28px;
+        background: var(--glass);
+        backdrop-filter: blur(14px);
+        border: 1px solid var(--glass-stroke);
+        border-radius: 12px;
+        white-space: nowrap;
+      }
+
+      /* Power meter — right edge */
+      .power {
+        position: fixed;
+        right: 22px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 14px;
+        height: 240px;
+        border-radius: 8px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid var(--glass-stroke);
+        overflow: hidden;
+        z-index: 10;
+      }
+      .power::after {
+        content: "SWING";
+        position: absolute;
+        bottom: -22px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 9px;
+        letter-spacing: 0.24em;
+        color: var(--text-dim);
+      }
+      .power-fill {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, #22d3ee 0%, #7fdcff 60%, #ffffff 100%);
+        transform-origin: bottom;
+        transform: scaleY(0);
+        transition: transform 80ms ease-out;
+      }
+
+      /* PIP — webcam preview top-right with skeleton overlay */
+      .pip {
+        position: fixed;
+        top: 20px;
+        right: 22px;
+        width: 220px;
+        height: 165px;
         border-radius: 14px;
         overflow: hidden;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.55), 0 0 0 1px #1f2937 inset;
-      }
-      .mirror {
-        position: absolute;
-        inset: 0;
-        transform: scaleX(-1);
-      }
-      video, canvas {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-      }
-      .status {
-        position: absolute;
-        top: 12px;
-        left: 12px;
-        background: rgba(0,0,0,0.65);
-        padding: 6px 10px;
-        border-radius: 6px;
-        font-size: 11px;
-        letter-spacing: 0.06em;
+        border: 1px solid var(--glass-stroke);
+        box-shadow: 0 14px 40px rgba(0,0,0,0.5);
+        background: #000;
         z-index: 10;
-        backdrop-filter: blur(4px);
       }
-      .legend {
+      .pip::before {
+        content: "LIVE · YOU";
         position: absolute;
-        bottom: 12px;
-        left: 12px;
-        display: flex;
-        gap: 12px;
-        background: rgba(0,0,0,0.65);
-        padding: 6px 10px;
-        border-radius: 6px;
-        font-size: 11px;
-        letter-spacing: 0.04em;
-        backdrop-filter: blur(4px);
+        top: 8px; left: 10px;
+        z-index: 2;
+        font-size: 9px;
+        letter-spacing: 0.26em;
+        color: var(--accent-user);
+        text-shadow: 0 1px 4px rgba(0,0,0,0.8);
       }
-      .swatch {
-        display: inline-block;
-        width: 10px;
-        height: 10px;
+      .pip::after {
+        content: "";
+        position: absolute;
+        top: 10px; right: 10px;
+        width: 6px; height: 6px;
         border-radius: 50%;
-        margin-right: 6px;
-        vertical-align: middle;
+        background: #ef4444;
+        box-shadow: 0 0 10px #ef4444;
+        z-index: 2;
+        animation: blink 1.5s infinite;
       }
-      .panel {
-        background: rgba(17, 24, 39, 0.8);
-        border: 1px solid #1f2937;
-        border-radius: 14px;
-        padding: 18px;
+      @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+      .pip video, .pip canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+      .pip video { visibility: hidden; }  /* feed is drawn into the canvas */
+
+      /* Center banner (POINT · YOU etc.) */
+      .banner {
+        position: fixed;
+        top: 42%;
+        left: 50%;
+        transform: translate(-50%, -50%) scale(0.9);
+        font-size: 56px;
+        letter-spacing: 0.18em;
+        font-weight: 300;
+        color: #fff;
+        opacity: 0;
+        pointer-events: none;
+        text-shadow: 0 0 40px rgba(127, 220, 255, 0.5);
+        transition: opacity 140ms ease, transform 260ms cubic-bezier(.2,.7,.2,1);
+        z-index: 20;
+      }
+      .banner.show {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+      }
+
+      /* Modals */
+      .modal {
+        position: fixed;
+        inset: 0;
+        z-index: 40;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(ellipse at center, rgba(8,12,20,0.85) 0%, rgba(0,0,0,0.92) 100%);
+        backdrop-filter: blur(6px);
+      }
+      .modal.hidden { display: none; }
+      .card {
+        width: 440px;
+        padding: 32px 30px 28px;
+        background: linear-gradient(180deg, rgba(18,24,36,0.9), rgba(10,14,22,0.95));
+        border: 1px solid var(--glass-stroke);
+        border-radius: 20px;
+        box-shadow: 0 30px 80px rgba(0,0,0,0.7);
+      }
+      .card h1 {
+        font-size: 11px;
+        letter-spacing: 0.4em;
+        text-transform: uppercase;
+        color: var(--text-dim);
+        margin-bottom: 6px;
+        font-weight: 400;
+      }
+      .card h2 {
+        font-size: 28px;
+        font-weight: 300;
+        letter-spacing: 0.04em;
+        margin-bottom: 24px;
+      }
+      .card h2 span { color: var(--accent-user); }
+      .field {
+        display: grid;
+        grid-template-columns: 140px 1fr;
+        align-items: center;
+        padding: 10px 0;
+        border-top: 1px solid var(--glass-stroke);
         font-size: 12px;
-        line-height: 1.65;
       }
-      .panel pre {
+      .field:first-of-type { border-top: 0; }
+      .field label {
+        color: var(--text-dim);
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        font-size: 10px;
+      }
+      .field input, .field select {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid var(--glass-stroke);
+        color: var(--text);
+        padding: 8px 10px;
+        border-radius: 8px;
         font-family: inherit;
-        white-space: pre-wrap;
-        color: #cbd5e1;
+        font-size: 13px;
+        outline: none;
       }
+      .field input:focus, .field select:focus { border-color: var(--accent-user); }
+      .field input[type="range"] {
+        padding: 0;
+        height: 24px;
+        accent-color: var(--accent-user);
+        background: transparent;
+        border: 0;
+      }
+      .field.toggle {
+        grid-template-columns: 140px auto;
+      }
+      .field.toggle input { width: 16px; height: 16px; }
+      .btn {
+        margin-top: 22px;
+        width: 100%;
+        padding: 14px;
+        font-family: inherit;
+        font-size: 11px;
+        letter-spacing: 0.34em;
+        text-transform: uppercase;
+        color: #04060a;
+        background: linear-gradient(135deg, #7fdcff 0%, #22d3ee 100%);
+        border: 0;
+        border-radius: 10px;
+        cursor: pointer;
+        font-weight: 600;
+        transition: transform 100ms ease, box-shadow 100ms ease;
+      }
+      .btn:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(34, 211, 238, 0.25); }
+
+      .howto {
+        margin-top: 18px;
+        padding: 14px 16px;
+        background: rgba(127, 220, 255, 0.04);
+        border: 1px solid rgba(127, 220, 255, 0.18);
+        border-radius: 12px;
+      }
+      .howto-title {
+        font-size: 9px;
+        letter-spacing: 0.4em;
+        color: var(--accent-user);
+        text-transform: uppercase;
+        margin-bottom: 8px;
+      }
+      .howto ol {
+        padding-left: 18px;
+        font-size: 12px;
+        line-height: 1.7;
+        color: #cdd7e6;
+      }
+      .howto b { color: var(--text); font-weight: 500; }
+
+      .end-title {
+        font-size: 11px;
+        letter-spacing: 0.4em;
+        color: var(--text-dim);
+        text-transform: uppercase;
+        text-align: center;
+        margin-bottom: 8px;
+      }
+      .end-score {
+        font-family: "IBM Plex Mono", ui-monospace, monospace;
+        font-size: 68px;
+        font-weight: 300;
+        letter-spacing: 0.04em;
+        text-align: center;
+        margin-bottom: 6px;
+      }
+
+      /* Brand mark — bottom right */
+      .brand {
+        position: fixed;
+        bottom: 22px;
+        right: 22px;
+        font-size: 10px;
+        letter-spacing: 0.42em;
+        color: var(--text-dim);
+        z-index: 10;
+      }
+      .brand b { color: var(--text); font-weight: 500; }
     </style>
   </head>
   <body>
-    <div>
-      <h1>Pose + Hand Tracker · MediaPipe Pose + Hand Landmarker</h1>
-      <div class="wrap">
-        <div class="stage">
-          <div class="status" id="status">initializing…</div>
-          <div class="mirror">
-            <video id="cam" autoplay playsinline muted></video>
-            <canvas id="overlay"></canvas>
-          </div>
-          <div class="legend">
-            <span><span class="swatch" style="background:#22d3ee"></span>left arm + hand</span>
-            <span><span class="swatch" style="background:#f472b6"></span>right arm + hand</span>
-            <span><span class="swatch" style="background:#fde047"></span>fingertips</span>
-          </div>
-        </div>
-        <div class="panel">
-          <pre id="readout">waiting for camera…</pre>
-        </div>
+    <div id="stage"></div>
+
+    <div class="scoreboard">
+      <div class="side">
+        <div class="label">YOU</div>
+        <div class="num user" id="score-user">00</div>
+      </div>
+      <div class="divider"></div>
+      <div class="side">
+        <div class="label">OPPONENT</div>
+        <div class="num opp" id="score-opp">00</div>
       </div>
     </div>
+    <div class="ticker">
+      <span id="rally">RALLY · 0</span>
+      <span>·</span>
+      <span id="serve-indicator">YOUR SERVE</span>
+    </div>
+
+    <div class="pip">
+      <video id="pip-video" autoplay playsinline muted></video>
+      <canvas id="pip-canvas"></canvas>
+    </div>
+    <div class="hand-chip" id="hand-chip" data-state="off">HAND · NO BODY</div>
+
+    <div class="power"><div class="power-fill" id="power-fill"></div></div>
+
+    <div class="banner" id="match-banner"></div>
+
+    <div class="action-prompt" id="action-prompt">Step into frame</div>
+
+    <div class="status-chip" id="status">initializing…</div>
+    <div class="brand"><b>PHANTOM</b> · TABLE TENNIS</div>
+
+    <div class="modal" id="start-modal">
+      <div class="card">
+        <h1>Configure Match</h1>
+        <h2>Phantom <span>·</span> Table Tennis</h2>
+        <div class="field">
+          <label for="cfg-points">Points to win</label>
+          <input id="cfg-points" type="number" min="1" max="21" value="11" />
+        </div>
+        <div class="field">
+          <label for="cfg-rotation">Serves / rotation</label>
+          <input id="cfg-rotation" type="number" min="1" max="5" value="2" />
+        </div>
+        <div class="field">
+          <label for="cfg-hand">Playing hand</label>
+          <select id="cfg-hand">
+            <option value="Right">Right</option>
+            <option value="Left">Left</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="cfg-server">First serve</label>
+          <select id="cfg-server">
+            <option value="user">You</option>
+            <option value="opp">Opponent</option>
+          </select>
+        </div>
+        <div class="field toggle">
+          <label for="cfg-deuce">Deuce (win by 2)</label>
+          <input id="cfg-deuce" type="checkbox" checked />
+        </div>
+        <div class="field toggle">
+          <label for="cfg-mirror">Mirror left/right</label>
+          <input id="cfg-mirror" type="checkbox" checked />
+        </div>
+        <div class="field">
+          <label for="cfg-reach">Reach <span id="cfg-reach-val" style="color:var(--accent-user);float:right;">145%</span></label>
+          <input id="cfg-reach" type="range" min="50" max="250" value="145" />
+        </div>
+        <div class="howto">
+          <div class="howto-title">How to play</div>
+          <ol>
+            <li>Stand 1.5–2&thinsp;m from the camera so your full upper body is visible.</li>
+            <li>Your <b>palm</b> is the red forehand face, the <b>back of your hand</b> is the black backhand.</li>
+            <li>To <b>serve</b>, hold the racket below the table line then swing <b>up</b>.</li>
+            <li>Faster swings hit the ball harder; angle your hand to aim.</li>
+          </ol>
+        </div>
+        <button class="btn" id="cfg-start">Begin Match</button>
+      </div>
+    </div>
+
+    <div class="modal hidden" id="end-modal">
+      <div class="card">
+        <div id="end-text"></div>
+        <button class="btn" id="end-again">Play Again</button>
+      </div>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
