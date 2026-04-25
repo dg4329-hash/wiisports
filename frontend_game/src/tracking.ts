@@ -54,7 +54,13 @@ const DEAD_RECKON_MS = 350;
 const VEL_DECAY_HZ = 2.2;
 // Gesture hysteresis: once the scissor gesture is seen, latch this many
 // detection frames so a single-frame flicker doesn't drop the blade.
-const GESTURE_STICKY_FRAMES = 4;
+const GESTURE_STICKY_FRAMES = 6;
+// Two detections within this normalized distance are treated as duplicates of the
+// same physical hand (MP occasionally double-detects when bboxes overlap).
+const DEDUPE_DIST = 0.10;
+// A new detection within this distance of an existing blade slot is treated as the
+// same physical hand — handedness label is ignored. Prevents ghost blades from L↔R flicker.
+const SLOT_MATCH_DIST = 0.28;
 
 // Gesture thresholds (rotation-invariant — ratios of distance-from-wrist).
 const EXTENDED_RATIO = 1.15;
@@ -124,9 +130,11 @@ export class HandTracker {
       },
       runningMode: "VIDEO",
       numHands: 2,
-      minHandDetectionConfidence: 0.5,
-      minHandPresenceConfidence: 0.5,
-      minTrackingConfidence: 0.5,
+      // Lower thresholds — keep tracking even when MP's confidence dips. Drift is
+      // tolerable here; momentary track-loss is what feels broken to the player.
+      minHandDetectionConfidence: 0.4,
+      minHandPresenceConfidence: 0.4,
+      minTrackingConfidence: 0.4,
     });
     this._ready = true;
   }
@@ -174,32 +182,83 @@ export class HandTracker {
       return { active: raw || remaining > 0 };
     });
 
-    // Which handedness slots saw a detection at all (regardless of gesture)?
-    const detectedSides = new Set<string>();
-    sides.forEach((s) => detectedSides.add(s));
+    // === Build a deduplicated candidate list keyed by blade position, not handedness ===
+    type Candidate = {
+      lm: V3[];
+      side: BladeState["handedness"];
+      active: boolean;
+      rawNx: number;
+      rawNy: number;
+    };
+    const allCandidates: Candidate[] = landmarks.map((lm, i) => ({
+      lm,
+      side: sides[i],
+      active: gestures[i].active,
+      rawNx: 1 - (lm[INDEX_TIP].x + lm[MIDDLE_TIP].x) / 2,
+      rawNy: (lm[INDEX_TIP].y + lm[MIDDLE_TIP].y) / 2,
+    }));
 
-    // Which blade-state keys got refreshed with a live sample this frame?
+    // Drop spatially-overlapping detections (MP occasionally double-detects the same hand).
+    const uniqueCandidates: Candidate[] = [];
+    for (const cand of allCandidates) {
+      const dup = uniqueCandidates.some(
+        (u) => Math.hypot(u.rawNx - cand.rawNx, u.rawNy - cand.rawNy) < DEDUPE_DIST,
+      );
+      if (!dup) uniqueCandidates.push(cand);
+    }
+
+    // Active candidates are the ones that update existing blade slots / spawn new ones.
+    const activeCandidates = uniqueCandidates.filter((c) => c.active);
+
+    // === Position-based slot matching (handedness-agnostic) ===
+    // For each active candidate, match to the closest existing blade state. If it's within
+    // SLOT_MATCH_DIST, that's the same physical hand (regardless of MP's handedness label).
+    // Otherwise it's a new hand and gets a fresh slot.
     const refreshedKeys = new Set<string>();
+    type Match = { cand: Candidate; key: string };
+    const matches: Match[] = [];
 
-    landmarks.forEach((lm, i) => {
-      if (!gestures[i].active) return;
-      const side = sides[i];
-      const key = side;
+    for (const cand of activeCandidates) {
+      let bestKey: string | null = null;
+      let bestDist = Infinity;
+      this.bladeStates.forEach((state, key) => {
+        if (refreshedKeys.has(key)) return; // already taken by another candidate this frame
+        const dist = Math.hypot(state.nx - cand.rawNx, state.ny - cand.rawNy);
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestKey = key;
+        }
+      });
 
-      // Raw blade anchor = midpoint of index and middle fingertips (mirrored x).
-      const rawNx = 1 - (lm[INDEX_TIP].x + lm[MIDDLE_TIP].x) / 2;
-      const rawNy = (lm[INDEX_TIP].y + lm[MIDDLE_TIP].y) / 2;
+      let key: string;
+      if (bestKey !== null && bestDist < SLOT_MATCH_DIST) {
+        key = bestKey;
+      } else {
+        // Fresh slot — base it on side label, append a suffix only if collision.
+        key = cand.side;
+        let suffix = 0;
+        while (refreshedKeys.has(key) || this.bladeStates.has(key)) {
+          suffix++;
+          key = cand.side + suffix;
+          if (suffix > 4) break;
+        }
+      }
+      refreshedKeys.add(key);
+      matches.push({ cand, key });
+    }
 
+    // Apply matches — smooth + write each blade state.
+    for (const { cand, key } of matches) {
       const prev = this.bladeStates.get(key);
       let nx: number, ny: number, vx: number, vy: number;
       if (!prev) {
-        nx = rawNx;
-        ny = rawNy;
+        nx = cand.rawNx;
+        ny = cand.rawNy;
         vx = 0;
         vy = 0;
       } else {
-        const smoothedNx = prev.nx + POS_EMA_ALPHA * (rawNx - prev.nx);
-        const smoothedNy = prev.ny + POS_EMA_ALPHA * (rawNy - prev.ny);
+        const smoothedNx = prev.nx + POS_EMA_ALPHA * (cand.rawNx - prev.nx);
+        const smoothedNy = prev.ny + POS_EMA_ALPHA * (cand.rawNy - prev.ny);
         const dt = Math.max(0.001, (now - prev.lastUpdateTs) / 1000);
         const instVx = (smoothedNx - prev.nx) / dt;
         const instVy = (smoothedNy - prev.ny) / dt;
@@ -208,9 +267,8 @@ export class HandTracker {
         nx = smoothedNx;
         ny = smoothedNy;
       }
-
       this.bladeStates.set(key, {
-        handedness: side,
+        handedness: cand.side,
         nx,
         ny,
         vx,
@@ -219,20 +277,26 @@ export class HandTracker {
         lastUpdateTs: now,
         live: true,
       });
-      refreshedKeys.add(key);
-    });
+    }
 
-    // Reconcile blade states that weren't refreshed this video frame.
+    // Reconcile unrefreshed blade states. Distinguish "user released gesture but hand
+    // is still visible" (delete immediately) from "hand left frame" (dead-reckon).
     const toDelete: string[] = [];
     this.bladeStates.forEach((state, key) => {
       if (refreshedKeys.has(key)) return;
-      if (detectedSides.has(key)) {
-        // Hand is visible but the scissor gesture was released (after hysteresis).
-        // Treat as intentional: end the blade immediately — no ghost drift.
+      // Is there a gesture-INACTIVE candidate near this blade's last position?
+      // That means the user's hand is still visible — they intentionally released the gesture.
+      let nearestInactive = Infinity;
+      for (const c of uniqueCandidates) {
+        if (c.active) continue;
+        const dist = Math.hypot(state.nx - c.rawNx, state.ny - c.rawNy);
+        if (dist < nearestInactive) nearestInactive = dist;
+      }
+      if (nearestInactive < SLOT_MATCH_DIST) {
         toDelete.push(key);
         return;
       }
-      // Hand not detected this frame → dead-reckon.
+      // Otherwise the hand left the frame — dead-reckon for up to DEAD_RECKON_MS.
       const age = now - state.lastLiveTs;
       if (age > DEAD_RECKON_MS) {
         toDelete.push(key);
@@ -246,7 +310,6 @@ export class HandTracker {
       state.vy *= decay;
       state.lastUpdateTs = now;
       state.live = false;
-      // clamp softly so it doesn't fly off into nowhere
       state.nx = Math.max(-0.05, Math.min(1.05, state.nx));
       state.ny = Math.max(-0.05, Math.min(1.05, state.ny));
     });
