@@ -323,6 +323,46 @@ html, body {
   filter: blur(12px);
 }
 
+/* MP4 transition — flips visibility instantly with no opacity transition. To eliminate
+   any flicker, the React layer:
+     • Holds the lobby visible until the video element fires `playing` (first frame
+       actually decoded + rendered) — only then makes the video visible.
+     • Renders the picker into its final state DURING the video (covered by the video),
+       so when the video ends the underlying picker is already fully composed for a
+       hard cut on the same frame. */
+.transition-video {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 35;
+  pointer-events: none;
+  visibility: hidden;
+  background: var(--bg-base);
+}
+.transition-video.visible { visibility: visible; }
+
+/* Watermark cover — solid black rectangle over the bottom-right of the video, sized
+   to roughly match a typical Veo corner watermark (a bit larger for safety margin). */
+.transition-watermark-cover {
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  width: 14%;
+  height: 7%;
+  z-index: 36;
+  pointer-events: none;
+  visibility: hidden;
+  background: #000;
+}
+.transition-watermark-cover.visible { visibility: visible; }
+
+/* During the video transition: hide the hero + HUD instantly (they're covered anyway,
+   but removing them avoids any chance of pre-render bleed-through). */
+.stage[data-phase="transitioning"] .hero-stack,
+.stage[data-phase="transitioning"] .hud { display: none; }
+
 /* White-bloom flash */
 .bloom {
   position: absolute; inset: 0;

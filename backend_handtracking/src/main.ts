@@ -32,6 +32,11 @@ async function main() {
   const bundle = createSceneBundle(stage);
   window.addEventListener("resize", () => fitRendererToContainer(bundle, stage));
 
+  // Wire the back-to-lobby chip to the configured lobby URL (default `/`).
+  const lobbyUrl = ((import.meta as any).env?.VITE_LOBBY_URL as string | undefined) ?? "/";
+  const backChip = document.getElementById("back-chip") as HTMLAnchorElement | null;
+  if (backChip) backChip.href = lobbyUrl;
+
   // Start camera immediately so the PIP gets a feed while the user tweaks settings.
   setStatus(ui, "requesting camera…");
   try {
@@ -378,14 +383,13 @@ function drawPip(
   playingHand: "Left" | "Right",
 ): void {
   const w = canvas.width, h = canvas.height;
-  // Pure black background — only the skeleton/tracking overlay is rendered.
-  // Skeleton drawing below already mirrors x via `mx = (1 - x) * w`, so no canvas-level
-  // mirroring transform is needed here.
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, w, h);
-  void video;
-  // Skeleton overlay on the mirrored image — since our landmarks are in unmirrored video coords,
-  // we need to mirror the X when drawing.
+  // Mirrored selfie view of the live camera. Skeleton draws on top, also mirrored via
+  // `mx = (1 - x) * w` below so the overlay stays aligned with the flipped image.
+  ctx.save();
+  ctx.translate(w, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0, w, h);
+  ctx.restore();
   const mx = (x: number) => (1 - x) * w;
   const my = (y: number) => y * h;
 

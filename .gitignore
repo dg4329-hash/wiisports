@@ -25,3 +25,8 @@ yarn-error.log*
 
 # misc
 *.tmp
+
+# scratch files at repo root (the deployed video lives at nostalgia-ar/public/transition.mp4)
+/Nostalgia_AR_transition_*.mp4
+/new_transition.mp4
+/ddd.txt

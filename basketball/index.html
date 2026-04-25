@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HOOPS · arcade shooter</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Epilogue:wght@700;800;900&family=Plus+Jakarta+Sans:wght@400;500;700&family=IBM+Plex+Mono:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg-base: #04060a;
+        --accent: #ff8a3c;
+        --accent-soft: #ffd2a3;
+        --tx-primary: #e6edf7;
+        --tx-dim: #8b9ab3;
+        --tx-faint: #5b6b85;
+        --glass: rgba(12, 18, 28, 0.55);
+        --glass-stroke: rgba(180, 200, 230, 0.12);
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body {
+        height: 100%; width: 100%; overflow: hidden;
+        background: var(--bg-base);
+        color: var(--tx-primary);
+        font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+      }
+      #stage {
+        position: fixed; inset: 0;
+        background:
+          radial-gradient(ellipse 80% 60% at 50% 20%, #2a1f1a 0%, #05070d 55%, #000 100%),
+          #000;
+      }
+      #stage canvas { display: block; }
+
+      /* Score panel — top center */
+      .score {
+        position: fixed; top: 20px; left: 50%;
+        transform: translateX(-50%);
+        background: var(--glass);
+        backdrop-filter: blur(14px);
+        border: 1px solid var(--glass-stroke);
+        border-radius: 18px;
+        padding: 14px 32px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.55);
+        z-index: 10;
+        text-align: center;
+      }
+      .score .label {
+        font-size: 10px;
+        letter-spacing: 0.34em;
+        text-transform: uppercase;
+        color: var(--tx-dim);
+        margin-bottom: 6px;
+      }
+      .score .num {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 56px;
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+        color: var(--accent);
+        text-shadow: 0 0 30px rgba(255, 138, 60, 0.45);
+        line-height: 1;
+      }
+
+      /* Stats row — under score */
+      .stats {
+        position: fixed; top: 144px; left: 50%;
+        transform: translateX(-50%);
+        display: flex; gap: 28px;
+        z-index: 10;
+        font-size: 11px;
+        letter-spacing: 0.24em;
+        color: var(--tx-dim);
+        text-transform: uppercase;
+      }
+      .stats span b {
+        color: var(--tx-primary);
+        font-weight: 700;
+        font-family: "IBM Plex Mono", monospace;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* PIP — top right, black with skeleton overlay */
+      .pip {
+        position: fixed; top: 20px; right: 22px;
+        width: 220px; height: 165px;
+        border-radius: 14px;
+        overflow: hidden;
+        border: 1px solid var(--glass-stroke);
+        box-shadow: 0 14px 40px rgba(0,0,0,0.55);
+        background: #000;
+        z-index: 10;
+      }
+      .pip::before {
+        content: "TRACKING";
+        position: absolute; top: 8px; left: 10px;
+        z-index: 2;
+        font-size: 9px;
+        letter-spacing: 0.26em;
+        color: var(--accent);
+        text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+      }
+      .pip::after {
+        content: ""; position: absolute; top: 10px; right: 10px;
+        width: 6px; height: 6px;
+        border-radius: 50%;
+        background: #ef4444;
+        box-shadow: 0 0 10px #ef4444;
+        z-index: 2;
+        animation: blink 1.5s infinite;
+      }
+      @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+      .pip video {
+        position: absolute; inset: 0;
+        width: 100%; height: 100%;
+        object-fit: cover;
+        visibility: hidden;
+      }
+      .pip canvas {
+        position: absolute; inset: 0;
+        width: 100%; height: 100%;
+        object-fit: cover;
+      }
+
+      /* Status chip — bottom left */
+      .status-chip {
+        position: fixed; bottom: 22px; left: 22px;
+        padding: 8px 14px;
+        font-size: 10px;
+        letter-spacing: 0.26em;
+        text-transform: uppercase;
+        color: var(--tx-dim);
+        background: var(--glass);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--glass-stroke);
+        border-radius: 10px;
+        z-index: 10;
+      }
+
+      /* Center banner */
+      .banner {
+        position: fixed;
+        top: 38%;
+        left: 50%;
+        transform: translate(-50%, -50%) scale(0.92);
+        font-family: "Epilogue", sans-serif;
+        font-size: 56px;
+        font-weight: 800;
+        font-style: italic;
+        letter-spacing: 0.06em;
+        color: var(--accent);
+        text-shadow: 0 0 40px rgba(255, 138, 60, 0.55);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 140ms ease, transform 260ms cubic-bezier(.2,.7,.2,1);
+        z-index: 20;
+        white-space: nowrap;
+      }
+      .banner.show {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+      }
+
+      /* Help — bottom center */
+      .help {
+        position: fixed; bottom: 22px; left: 50%;
+        transform: translateX(-50%);
+        font-size: 11px; letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--tx-faint);
+        z-index: 10;
+        text-align: center;
+      }
+
+      .brand {
+        position: fixed; bottom: 22px; right: 22px;
+        font-size: 10px;
+        letter-spacing: 0.42em;
+        color: var(--tx-faint);
+      }
+      .brand b { color: var(--tx-primary); font-weight: 500; }
+
+      /* Back-to-lobby chip — small, low-key, fixed top-left. */
+      .back-chip {
+        position: fixed;
+        top: 22px;
+        left: 22px;
+        padding: 8px 14px;
+        font-size: 10px;
+        letter-spacing: 0.26em;
+        text-transform: uppercase;
+        color: var(--tx-dim);
+        background: var(--glass);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid var(--glass-stroke);
+        border-radius: 10px;
+        text-decoration: none;
+        z-index: 50;
+        transition: color 180ms ease, border-color 180ms ease, transform 180ms ease;
+      }
+      .back-chip:hover {
+        color: var(--accent);
+        border-color: rgba(255, 138, 60, 0.45);
+        transform: translateX(-1px);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage"></div>
+
+    <div class="score">
+      <div class="label">SCORE</div>
+      <div class="num" id="score-value">00</div>
+    </div>
+    <div class="stats">
+      <span>MAKES <b id="makes-value">0 / 0</b></span>
+      <span>·</span>
+      <span>STREAK <b id="streak-value">0</b></span>
+      <span>·</span>
+      <span>BEST <b id="best-value">0</b></span>
+      <span>·</span>
+      <span>ACC <b id="acc-value">0%</b></span>
+    </div>
+
+    <div class="pip">
+      <video id="cam" autoplay playsinline muted></video>
+      <canvas id="pip-canvas"></canvas>
+    </div>
+
+    <div id="banner" class="banner">SWISH!</div>
+
+    <div class="status-chip" id="status">initializing…</div>
+    <div class="help">OPEN RIGHT HAND · CURL FINGERS &amp; PUSH FORWARD TO SHOOT</div>
+    <div class="brand"><b>HOOPS</b> · ARCADE</div>
+    <a class="back-chip" id="back-chip" href="/">← LOBBY</a>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

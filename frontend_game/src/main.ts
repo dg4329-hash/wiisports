@@ -35,6 +35,11 @@ const setStatus = (text: string | null) => {
 
 const tracker = new HandTracker(video, camOverlay);
 
+// Wire back-to-lobby chip to the configured URL (default `/`).
+const lobbyUrl = ((import.meta as any).env?.VITE_LOBBY_URL as string | undefined) ?? "/";
+const backChip = document.getElementById("back-chip") as HTMLAnchorElement | null;
+if (backChip) backChip.href = lobbyUrl;
+
 let comboHideTimeout: number | null = null;
 const showCombo = (count: number) => {
   comboEl.textContent = `COMBO x${count}!`;
