@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { Avatar, Racket } from "./scene";
 import type { Frame, Handedness, V3 } from "./types";
-import { mpDirToScene, mpToScene, pickPlayingHand, Smoother } from "./tracking";
+import { mpDirToScene, mpToScene, OneEuroFilter, pickPlayingHand, Smoother } from "./tracking";
 
 const LEFT_SHOULDER = 11, RIGHT_SHOULDER = 12;
 const LEFT_ELBOW = 13, RIGHT_ELBOW = 14;
@@ -45,6 +45,9 @@ export class UserAvatarDriver {
   public wristEstimated = false; // true when extrapolating from elbow + cached forearm
   private lastForearmDir = new THREE.Vector3(0, 1, 0);
   private lastForearmLen = 0.3;
+  // One-Euro filter on the pitch component of palm normal. Tuned for low-jitter when
+  // the wrist is held still, but responsive to actual tilt motion.
+  private pitchFilter = new OneEuroFilter(/*freqMin*/ 0.8, /*beta*/ 0.04, /*freqDeriv*/ 1.0);
 
   constructor(private avatar: Avatar, private racket: Racket, private hand: Handedness) {}
 
@@ -159,8 +162,10 @@ export class UserAvatarDriver {
         normal.normalize();
         const up = mv.clone().normalize();
 
-        this.palmNormal.lerp(normal, 0.5).normalize();
-        this.palmUp.lerp(up, 0.5).normalize();
+        // Heavier base smoothing on the palm frame — reduces high-frequency jitter
+        // before any axis is extracted from it.
+        this.palmNormal.lerp(normal, 0.35).normalize();
+        this.palmUp.lerp(up, 0.35).normalize();
         this.handVisible = true;
       }
     }
@@ -204,7 +209,24 @@ export class UserAvatarDriver {
       else if (this.isBackhand && palmDot > 0.25) this.isBackhand = false;
     }
 
-    const zAxis = zForehand.clone().multiplyScalar(this.isBackhand ? -1 : 1);
+    // Pitch — vertical wrist tilt rotates the paddle face up/down without changing
+    // forehand/backhand orientation. palmNormal.y > 0 = wrist tipped back (palm up) →
+    // paddle face opens upward → ball gets lifted on contact. < 0 = closed face → flat drive.
+    // One-Euro filter on the raw pitch input — heavy smoothing when held still, lighter
+    // during deliberate tilt. Then a small deadzone so micro-noise stays at exactly zero.
+    const rawPitch = this.palmNormal.y;
+    const filteredPitch = this.pitchFilter.filter(rawPitch, dt);
+    const PITCH_DEADZONE = 0.08;
+    const deadzoned =
+      Math.abs(filteredPitch) < PITCH_DEADZONE
+        ? 0
+        : filteredPitch - Math.sign(filteredPitch) * PITCH_DEADZONE;
+    const pitchClamped = Math.max(-0.55, Math.min(0.55, deadzoned));
+    const pitchAngle = Math.asin(pitchClamped);
+    const pitchAxis = new THREE.Vector3().crossVectors(zForehand, yAxis).normalize();
+    const zPitched = zForehand.clone().applyAxisAngle(pitchAxis, pitchAngle);
+
+    const zAxis = zPitched.multiplyScalar(this.isBackhand ? -1 : 1);
     const xAxis = new THREE.Vector3().crossVectors(yAxis, zAxis).normalize();
     const m = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
     const targetQuat = new THREE.Quaternion().setFromRotationMatrix(m);

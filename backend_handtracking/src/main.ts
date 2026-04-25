@@ -23,6 +23,9 @@ type AppState = {
   hitCooldown: number;   // seconds remaining until the user can register another hit
 };
 
+// Probability the CPU deliberately whiffs each incoming ball — keeps matches winnable.
+const CPU_MISS_RATE = 0.22;
+
 async function main() {
   const stage = document.getElementById("stage") as HTMLDivElement;
   const ui = bindUI();
@@ -153,11 +156,14 @@ function startMatch(bundle: SceneBundle, ui: any, trackers: Trackers, cfg: Match
         // User serve — flat-only profile (no lobs) so the ball stays on screen.
         ball.vel.copy(serveShot(ball.pos, OPP_END_Z));
         ball.lastToucher = "user";
+        // Roll dice for whether the CPU will whiff this incoming serve.
+        ai.rollDice(CPU_MISS_RATE);
       } else {
         ball.pos.copy(ai.paddlePos).add(new THREE.Vector3(0, 0.18, 0));
         // Opponent serves use the same flat profile, aimed at user's side.
         ball.vel.copy(serveShot(ball.pos, USER_END_Z));
         ball.lastToucher = "opp";
+        ai.skipThisRally = false;
       }
       ball.bouncesSinceHit = 0;
     }
@@ -199,7 +205,7 @@ function startMatch(bundle: SceneBundle, ui: any, trackers: Trackers, cfg: Match
         Math.sign(ball.pos.x) * Math.sign(wrist.x) >= 0 || lateralGap < 0.25;
 
       // When the wrist is extrapolated (off-frame), be more lenient: bigger sphere, no flick required.
-      const sphereRadius = userDriver.wristEstimated ? 0.85 : 0.65;
+      const sphereRadius = userDriver.wristEstimated ? 0.68 : 0.52;
       const inHitSphere = distToWrist < sphereRadius;
       const flicked = userDriver.wristEstimated || wristSpeed > 0.4;
 
@@ -219,6 +225,8 @@ function startMatch(bundle: SceneBundle, ui: any, trackers: Trackers, cfg: Match
         updateHUD(ui, match);
         setPower(ui, Math.max(wristSpeed, 1.5) / 8);
         triggerSpark(bundle.hitSpark, ball.pos);
+        // Roll for whether the CPU will whiff this incoming return.
+        ai.rollDice(CPU_MISS_RATE);
       }
     }
 
@@ -233,13 +241,18 @@ function startMatch(bundle: SceneBundle, ui: any, trackers: Trackers, cfg: Match
         updateHUD(ui, match);
         // Power meter reflects last swing strength.
         const who = ev.who;
-        if (who === "user") setPower(ui, userDriver.faceVelocity.length() / 10);
+        if (who === "user") {
+          setPower(ui, userDriver.faceVelocity.length() / 10);
+          // Roll for whether the CPU will whiff this incoming return.
+          ai.rollDice(CPU_MISS_RATE);
+        }
         if (who === "opp") {
           // Override the passive reflection with a deterministic aimed return so the
           // CPU is reliable and the ball arcs slowly enough to react to.
           ball.vel.copy(plannedReturn(ball.pos));
           ball.bouncesSinceHit = 0;
           ball.lastToucher = "opp";
+          ai.skipThisRally = false;
         }
       } else if (ev.kind === "table") {
         // Valid or fault is decided by serve rules + rally context.
@@ -334,6 +347,9 @@ function handleTable(app: AppState, side: "user" | "opp"): void {
 
 function concludePoint(app: AppState, winnerIdx: 0 | 1): void {
   if (!app.rallyInFlight) return;
+  // Score attribution was inverted from how it actually played out — flip here so
+  // the right side gets credit + the banner matches what the user observed.
+  winnerIdx = (winnerIdx === 0 ? 1 : 0) as 0 | 1;
   app.rallyInFlight = false;
   app.serveArmed = false;
   app.ball.alive = false;

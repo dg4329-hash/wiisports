@@ -24,8 +24,13 @@ const AIR_DRAG = 0.05;            // per-second linear drag scale
 const TABLE_RESTITUTION = 0.88;
 const TABLE_FRICTION = 0.2;       // tangential velocity loss on bounce
 const RACKET_RESTITUTION = 0.85;
-const RACKET_RADIUS = 0.2;        // generous — visual paddle is 0.13, hit zone larger for forgiveness
+// Per-side racket hit-zone radius. The user side is tighter so missing actually feels
+// like a miss; the opponent's stays generous since AI tracking is its own challenge.
+const USER_RACKET_RADIUS = 0.16;  // was 0.20 — reduced 20% for tighter user hits
+const OPP_RACKET_RADIUS = 0.2;
 const BALL_RADIUS = 0.02;
+// Hard cap on upward ball velocity so the apex never escapes the camera frustum.
+const MAX_BALL_VY = 4.5;
 
 // Helper exposed for the AI: solve for the velocity needed to launch a projectile
 // from `from` so it lands at `to` after `t` seconds, under our gravity.
@@ -85,7 +90,7 @@ export function stepBall(ball: BallState, dt: number, ctx: StepCtx): CollisionRe
   // Racket collisions — swept test along segment pos→next.
   let collided = false;
   if (ctx.canUserHit) {
-    const ev = racketCollide(ball, next, ctx.userRacketPos, ctx.userRacketNormal, ctx.userRacketVel);
+    const ev = racketCollide(ball, next, ctx.userRacketPos, ctx.userRacketNormal, ctx.userRacketVel, USER_RACKET_RADIUS);
     if (ev) {
       ball.lastToucher = "user";
       ball.bouncesSinceHit = 0;
@@ -94,7 +99,7 @@ export function stepBall(ball: BallState, dt: number, ctx: StepCtx): CollisionRe
     }
   }
   if (!collided && ctx.canOppHit) {
-    const ev = racketCollide(ball, next, ctx.oppRacketPos, ctx.oppRacketNormal, ctx.oppRacketVel);
+    const ev = racketCollide(ball, next, ctx.oppRacketPos, ctx.oppRacketNormal, ctx.oppRacketVel, OPP_RACKET_RADIUS);
     if (ev) {
       ball.lastToucher = "opp";
       ball.bouncesSinceHit = 0;
@@ -144,6 +149,10 @@ export function stepBall(ball: BallState, dt: number, ctx: StepCtx): CollisionRe
     events.push({ kind: "out", point: ball.pos.clone() });
   }
 
+  // Cap upward velocity so the ball never arcs above the camera frustum.
+  // Falling speed (negative vy) is unaffected.
+  if (ball.vel.y > MAX_BALL_VY) ball.vel.y = MAX_BALL_VY;
+
   return events;
 }
 
@@ -155,6 +164,7 @@ function racketCollide(
   racketPos: THREE.Vector3,
   racketNormal: THREE.Vector3,
   racketVel: THREE.Vector3,
+  radius: number,
 ): THREE.Vector3 | null {
   const n = racketNormal.clone().normalize();
   const dStart = ball.pos.clone().sub(racketPos).dot(n);
@@ -179,7 +189,7 @@ function racketCollide(
   // Distance from racket centre, projected onto the paddle plane.
   const rel = intersection.clone().sub(racketPos);
   const planar = rel.clone().sub(n.clone().multiplyScalar(rel.dot(n)));
-  if (planar.length() > RACKET_RADIUS) return null;
+  if (planar.length() > radius) return null;
 
   const vRel = ball.vel.clone().sub(racketVel);
   const approach = vRel.dot(n);

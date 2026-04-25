@@ -21,7 +21,9 @@ export async function initTrackers(): Promise<Trackers> {
       numPoses: 1,
       minPoseDetectionConfidence: 0.5,
       minPosePresenceConfidence: 0.5,
-      minTrackingConfidence: 0.5,
+      // Higher tracking confidence forces re-detection sooner if quality drops, which
+      // reduces the kind of slow drift that reads as jitter.
+      minTrackingConfidence: 0.6,
       outputSegmentationMasks: false,
     }),
     HandLandmarker.createFromOptions(vision, {
@@ -33,7 +35,7 @@ export async function initTrackers(): Promise<Trackers> {
       numHands: 2,
       minHandDetectionConfidence: 0.5,
       minHandPresenceConfidence: 0.5,
-      minTrackingConfidence: 0.5,
+      minTrackingConfidence: 0.6,
     }),
   ]);
   return { pose, hands };
@@ -65,6 +67,49 @@ export function detect(trackers: Trackers, video: HTMLVideoElement, ts: number):
   }
 
   return { pose, poseWorld, hands, ts };
+}
+
+// One-Euro filter — adaptive low-pass that smooths heavily when the signal is stationary
+// and lightens up during fast changes. Standard for hand-tracking jitter reduction.
+// Reference: Casiez, Roussel, Vogel (2012) — "1€ Filter: A Simple Speed-based Low-Pass Filter."
+export class OneEuroFilter {
+  private prev: number | null = null;
+  private prevDeriv = 0;
+
+  constructor(
+    private freqMin = 1.0,   // Hz — base cutoff when stationary. Lower = heavier smoothing.
+    private beta = 0.05,     // speed coefficient — how fast cutoff opens up with motion.
+    private freqDeriv = 1.0, // Hz — cutoff for the derivative estimate itself.
+  ) {}
+
+  reset(): void {
+    this.prev = null;
+    this.prevDeriv = 0;
+  }
+
+  filter(value: number, dt: number): number {
+    if (this.prev === null) {
+      this.prev = value;
+      return value;
+    }
+    const safeDt = Math.max(dt, 1e-3);
+    // Smoothed derivative.
+    const rawDeriv = (value - this.prev) / safeDt;
+    const alphaDeriv = OneEuroFilter.alpha(this.freqDeriv, safeDt);
+    const smoothedDeriv = alphaDeriv * rawDeriv + (1 - alphaDeriv) * this.prevDeriv;
+    // Adaptive cutoff: cut more aggressively when derivative is small.
+    const cutoff = this.freqMin + this.beta * Math.abs(smoothedDeriv);
+    const alpha = OneEuroFilter.alpha(cutoff, safeDt);
+    const filtered = alpha * value + (1 - alpha) * this.prev;
+    this.prev = filtered;
+    this.prevDeriv = smoothedDeriv;
+    return filtered;
+  }
+
+  private static alpha(cutoffHz: number, dt: number): number {
+    const tau = 1.0 / (2 * Math.PI * cutoffHz);
+    return 1.0 / (1.0 + tau / dt);
+  }
 }
 
 // Exponential moving average smoother keyed by a string id.

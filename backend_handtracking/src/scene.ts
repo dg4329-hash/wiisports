@@ -54,6 +54,18 @@ export function createSceneBundle(container: HTMLElement): SceneBundle {
   scene.background = null;
   scene.fog = new THREE.Fog(0x05070b, 8, 22);
 
+  // Subtle env map so chrome trim + legs catch a soft highlight.
+  const _pmrem = new THREE.PMREMGenerator(renderer);
+  const _envScene = new THREE.Scene();
+  _envScene.background = new THREE.Color(0x1a1f2c);
+  const _envSun = new THREE.Mesh(
+    new THREE.SphereGeometry(2, 12, 12),
+    new THREE.MeshBasicMaterial({ color: 0xfff4c0 }),
+  );
+  _envSun.position.set(6, 8, -6);
+  _envScene.add(_envSun);
+  scene.environment = _pmrem.fromScene(_envScene, 0.04).texture;
+
   // Over-the-shoulder: camera behind user at +Z, looking toward opponent at -Z.
   const camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.05, 60);
   camera.position.set(0.0, 1.85, USER_END_Z + 1.95);
@@ -143,33 +155,111 @@ export function createSceneBundle(container: HTMLElement): SceneBundle {
 }
 
 function makeFloor(): THREE.Mesh {
+  const tex = makeWoodTexture();
   const mat = new THREE.MeshStandardMaterial({
-    color: 0x0a0d14,
-    roughness: 0.9,
+    map: tex,
+    roughness: 0.35,
     metalness: 0.1,
+    envMapIntensity: 0.6,
   });
-  const floor = new THREE.Mesh(new THREE.CircleGeometry(14, 64), mat);
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(14, 96), mat);
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
+
+  // Painted court accent ring around the playing area.
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(3.8, 3.95, 96),
+    new THREE.MeshStandardMaterial({ color: 0xffc73a, roughness: 0.5, metalness: 0.1 }),
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.001;
+  floor.add(ring);
+
+  // Inner court infill (slight tint so the playing area pops from the wood).
+  const inner = new THREE.Mesh(
+    new THREE.CircleGeometry(3.8, 96),
+    new THREE.MeshStandardMaterial({ color: 0x2d3142, roughness: 0.6, metalness: 0.05 }),
+  );
+  inner.rotation.x = -Math.PI / 2;
+  inner.position.y = 0.0005;
+  floor.add(inner);
+
   return floor;
+}
+
+function makeWoodTexture(): THREE.CanvasTexture {
+  const W = 1024, H = 1024;
+  const c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const ctx = c.getContext("2d") as CanvasRenderingContext2D;
+  ctx.fillStyle = "#a87242";
+  ctx.fillRect(0, 0, W, H);
+  const plankH = 96;
+  for (let y = 0; y < H; y += plankH) {
+    const shade = 0.85 + Math.random() * 0.3;
+    ctx.fillStyle = `rgba(120,70,30,${0.25 * shade})`;
+    ctx.fillRect(0, y, W, 2);
+    for (let i = 0; i < 6; i++) {
+      ctx.strokeStyle = `rgba(70,40,15,${0.08 + Math.random() * 0.08})`;
+      ctx.lineWidth = 1 + Math.random() * 1.5;
+      ctx.beginPath();
+      const yy = y + Math.random() * plankH;
+      ctx.moveTo(0, yy);
+      ctx.bezierCurveTo(W / 3, yy + (Math.random() - 0.5) * 8, 2 * W / 3, yy + (Math.random() - 0.5) * 8, W, yy);
+      ctx.stroke();
+    }
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(2, 2);
+  return tex;
 }
 
 function makeTable(): THREE.Group {
   const g = new THREE.Group();
 
-  // Surface — saturated red for high contrast against the white net + ball.
-  const topMat = new THREE.MeshStandardMaterial({
-    color: 0xc8323a,
-    roughness: 0.5,
-    metalness: 0.1,
+  // Premium red top — physical material for clearcoat sheen.
+  const topMat = new THREE.MeshPhysicalMaterial({
+    color: 0xb71c2a,
+    roughness: 0.32,
+    metalness: 0.08,
+    clearcoat: 0.85,
+    clearcoatRoughness: 0.18,
+    sheen: 0.3,
+    sheenColor: new THREE.Color(0xff6a6a),
+    envMapIntensity: 0.9,
     emissive: 0x3a0a0d,
-    emissiveIntensity: 0.25,
+    emissiveIntensity: 0.18,
   });
   const top = new THREE.Mesh(new THREE.BoxGeometry(TABLE.width, TABLE.thickness, TABLE.length), topMat);
   top.position.y = TABLE.height - TABLE.thickness / 2;
   top.castShadow = true;
   top.receiveShadow = true;
   g.add(top);
+
+  // Subtle radial vignette overlay to hint depth.
+  const gradTex = makeTableGradientTexture();
+  const overlay = new THREE.Mesh(
+    new THREE.PlaneGeometry(TABLE.width, TABLE.length),
+    new THREE.MeshBasicMaterial({ map: gradTex, transparent: true, opacity: 0.55, depthWrite: false }),
+  );
+  overlay.rotation.x = -Math.PI / 2;
+  overlay.position.y = TABLE.height + 0.0006;
+  g.add(overlay);
+
+  // Chrome trim around the top edge.
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0xe8e8ee, roughness: 0.18, metalness: 0.95 });
+  const addTrim = (w: number, l: number, x: number, z: number) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.008, l), trimMat);
+    m.position.set(x, TABLE.height + 0.0008, z);
+    m.castShadow = true;
+    g.add(m);
+  };
+  addTrim(TABLE.width + 0.03, 0.025, 0, +TABLE.length / 2 + 0.012);
+  addTrim(TABLE.width + 0.03, 0.025, 0, -TABLE.length / 2 - 0.012);
+  addTrim(0.025, TABLE.length + 0.03, +TABLE.width / 2 + 0.012, 0);
+  addTrim(0.025, TABLE.length + 0.03, -TABLE.width / 2 - 0.012, 0);
 
   // White line border (1cm ITTF spec).
   const lineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
@@ -179,7 +269,7 @@ function makeTable(): THREE.Group {
       new THREE.BoxGeometry(w, 0.001, l),
       lineMat,
     );
-    m.position.set(x, TABLE.height + 0.0005, z);
+    m.position.set(x, TABLE.height + 0.0014, z);
     g.add(m);
   };
   addLine(TABLE.width, lineW, 0, +TABLE.length / 2 - lineW / 2);
@@ -189,19 +279,25 @@ function makeTable(): THREE.Group {
   // Centre line.
   addLine(lineW * 1.5, TABLE.length, 0, 0);
 
-  // Leg / skirt — a single dark block underneath for weight.
-  const skirtMat = new THREE.MeshStandardMaterial({ color: 0x06080c, roughness: 0.8 });
+  // Skirt with accent stripe.
+  const skirtMat = new THREE.MeshStandardMaterial({ color: 0x18121a, roughness: 0.7, metalness: 0.2 });
   const skirt = new THREE.Mesh(
-    new THREE.BoxGeometry(TABLE.width * 0.94, 0.12, TABLE.length * 0.92),
+    new THREE.BoxGeometry(TABLE.width * 0.95, 0.16, TABLE.length * 0.94),
     skirtMat,
   );
-  skirt.position.y = TABLE.height - TABLE.thickness - 0.06;
+  skirt.position.y = TABLE.height - TABLE.thickness - 0.08;
   skirt.castShadow = true;
   g.add(skirt);
+  const skirtStripe = new THREE.Mesh(
+    new THREE.BoxGeometry(TABLE.width * 0.95 + 0.005, 0.018, TABLE.length * 0.94 + 0.005),
+    new THREE.MeshStandardMaterial({ color: 0x6e0d18, roughness: 0.5, metalness: 0.4, emissive: 0x2a0408, emissiveIntensity: 0.4 }),
+  );
+  skirtStripe.position.y = TABLE.height - TABLE.thickness - 0.04;
+  g.add(skirtStripe);
 
-  // Four legs.
-  const legMat = new THREE.MeshStandardMaterial({ color: 0x0a0d14, roughness: 0.6, metalness: 0.4 });
-  const legGeom = new THREE.CylinderGeometry(0.025, 0.025, TABLE.height - 0.12);
+  // Chrome legs + rubber feet.
+  const legMat = new THREE.MeshStandardMaterial({ color: 0xc8ccd4, roughness: 0.25, metalness: 0.95 });
+  const footMat = new THREE.MeshStandardMaterial({ color: 0x0c0c10, roughness: 0.95 });
   const legPos = [
     [+TABLE.width * 0.4, +TABLE.length * 0.42],
     [-TABLE.width * 0.4, +TABLE.length * 0.42],
@@ -209,13 +305,33 @@ function makeTable(): THREE.Group {
     [-TABLE.width * 0.4, -TABLE.length * 0.42],
   ];
   for (const [lx, lz] of legPos) {
-    const leg = new THREE.Mesh(legGeom, legMat);
-    leg.position.set(lx, (TABLE.height - 0.12) / 2, lz);
+    const legH = TABLE.height - 0.16;
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.026, legH), legMat);
+    leg.position.set(lx, legH / 2, lz);
     leg.castShadow = true;
     g.add(leg);
+    const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 0.025), footMat);
+    foot.position.set(lx, 0.012, lz);
+    foot.castShadow = true;
+    g.add(foot);
   }
 
   return g;
+}
+
+function makeTableGradientTexture(): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = 256; c.height = 256;
+  const ctx = c.getContext("2d") as CanvasRenderingContext2D;
+  const grad = ctx.createRadialGradient(128, 128, 20, 128, 128, 180);
+  grad.addColorStop(0, "rgba(255,180,180,0.45)");
+  grad.addColorStop(0.5, "rgba(120,20,30,0.0)");
+  grad.addColorStop(1, "rgba(40,5,10,0.55)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 function makeNet(): THREE.Mesh {

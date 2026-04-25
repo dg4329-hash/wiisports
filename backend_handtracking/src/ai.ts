@@ -57,10 +57,20 @@ export function randomFlightTime(): number {
   return randomShot().flightTime;
 }
 
-// Compute a deterministic, varied return aimed at the user's side. The randomized shot profile
-// means every ball arrives with a different pace + bounce height, like a real rally.
+// Compute a deterministic, varied return aimed at the user's side. X (lateral) varies for
+// placement variety and Y (apex) varies via flight-time / arcBoost — but Z (the depth at
+// which the ball lands on the user's table) is FIXED so the ball always crosses the user's
+// racket plane at a consistent reach distance. The user can keep their racket at one depth
+// and just adjust laterally + vertically to make contact.
+const USER_LANDING_Z_RATIO = 0.55; // 55% of the way to user's baseline = mid-user-court
 export function plannedReturn(ballPos: THREE.Vector3): THREE.Vector3 {
-  return shotTowards(ballPos, USER_END_Z);
+  const shot = randomShot();
+  const targetX = (Math.random() - 0.5) * TABLE.width * 0.65;
+  const targetZ = USER_END_Z * USER_LANDING_Z_RATIO;
+  const target = new THREE.Vector3(targetX, TABLE.height + 0.02, targetZ);
+  const vel = aimedLaunch(ballPos, target, shot.flightTime);
+  vel.y = Math.min(vel.y + shot.arcBoost, 4.0);
+  return vel;
 }
 
 // Generic helper — aims a shot toward the given end (USER_END_Z or OPP_END_Z) with shot variety.
@@ -73,12 +83,17 @@ export function serveShot(ballPos: THREE.Vector3, endZ: number): THREE.Vector3 {
   return shotWith(ballPos, endZ, randomServeShot());
 }
 
+// Hard ceiling on vertical launch speed — keeps the ball's apex inside the camera frustum.
+// Camera looks down at the table from y≈1.85, top of view sits around y≈2.6 m. With g=7
+// and a launch from y≈1.0, vy=4.0 peaks at ~2.16 m. Anything above 4.0 risks going off-frame.
+const MAX_LAUNCH_VY = 4.0;
+
 function shotWith(ballPos: THREE.Vector3, endZ: number, shot: ShotProfile): THREE.Vector3 {
   const targetX = (Math.random() - 0.5) * TABLE.width * 0.65;
   const targetZ = endZ * shot.landingZRatio;
   const target = new THREE.Vector3(targetX, TABLE.height + 0.02, targetZ);
   const vel = aimedLaunch(ballPos, target, shot.flightTime);
-  vel.y += shot.arcBoost;
+  vel.y = Math.min(vel.y + shot.arcBoost, MAX_LAUNCH_VY);
   return vel;
 }
 
@@ -97,7 +112,7 @@ export function magnetReturnShot(ballPos: THREE.Vector3, ballSideSign: number): 
   const targetZ = OPP_END_Z * shot.landingZRatio;
   const target = new THREE.Vector3(targetX, TABLE.height + 0.02, targetZ);
   const vel = aimedLaunch(ballPos, target, shot.flightTime);
-  vel.y += shot.arcBoost;
+  vel.y = Math.min(vel.y + shot.arcBoost, MAX_LAUNCH_VY);
   return vel;
 }
 
@@ -109,6 +124,30 @@ export class OpponentAI {
   private prevPos = this.paddlePos.clone();
   public missProb = 0.0;
   public skill = 1.0;
+  // Set to true at the start of an incoming-ball cycle to make the AI deliberately whiff.
+  // The paddle still tracks toward the ball but is offset by `missOffset*` so it lunges
+  // and visibly fails — `canReturnNow()` returns false so no actual hit registers.
+  public skipThisRally = false;
+  private missOffsetX = 0;
+  private missOffsetY = 0;
+  private missLerp = 1.0;       // how aggressively the paddle chases on a miss (lower = looks late)
+
+  // Roll the dice for this incoming ball. Call once per user-touch event.
+  public rollDice(missRate: number): void {
+    this.skipThisRally = Math.random() < missRate;
+    if (this.skipThisRally) {
+      // Pick a miss profile — random direction + distance + reaction speed.
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 0.28 + Math.random() * 0.18;  // 28–46cm off the predicted landing
+      this.missOffsetX = Math.cos(angle) * dist;
+      this.missOffsetY = Math.sin(angle) * dist * 0.4;
+      this.missLerp = 0.55 + Math.random() * 0.25; // 55–80% chase speed (looks slightly late)
+    } else {
+      this.missOffsetX = 0;
+      this.missOffsetY = 0;
+      this.missLerp = 1.0;
+    }
+  }
 
   constructor(private avatar: Avatar, private racket: Racket) {}
 
@@ -118,21 +157,26 @@ export class OpponentAI {
     let target = this.paddlePos.clone();
 
     if (ball.alive && ball.vel.z < -0.01) {
-      // Ball is heading toward opponent — move paddle to intercept.
+      // Ball is heading toward opponent — track toward intercept (even on a miss, so
+      // the paddle visually lunges).
       const pred = predictLandingAtZ(ball, hitZ);
       if (pred) {
-        // Clamp within a generous reach window so the AI nearly always meets the ball.
         pred.x = THREE.MathUtils.clamp(pred.x, -TABLE.width / 2 - 0.4, TABLE.width / 2 + 0.4);
         pred.y = THREE.MathUtils.clamp(pred.y, TABLE.height + 0.05, TABLE.height + 0.9);
+        if (this.skipThisRally) {
+          // Lunge in the wrong direction so the paddle reaches but doesn't connect.
+          pred.x += this.missOffsetX;
+          pred.y = Math.max(TABLE.height + 0.05, pred.y + this.missOffsetY);
+        }
         target.copy(pred);
       }
     } else {
-      // Idle — hover near opponent center.
       target.set(0, TABLE.height + 0.32, OPP_END_Z - 0.05);
     }
 
-    // Snap paddle quickly to target so it's always in position.
-    this.paddlePos.lerp(target, 1 - Math.exp(-22 * dt));
+    // Snap paddle to target. On a miss-rally, chase speed is throttled so the paddle looks slightly late.
+    const chaseSpeed = 22 * (this.skipThisRally ? this.missLerp : 1.0);
+    this.paddlePos.lerp(target, 1 - Math.exp(-chaseSpeed * dt));
     this.paddleVel.copy(this.paddlePos).sub(this.prevPos).divideScalar(Math.max(dt, 1e-3));
     this.prevPos.copy(this.paddlePos);
 
@@ -174,7 +218,8 @@ export class OpponentAI {
     return (
       ball.alive &&
       ball.pos.z < OPP_END_Z + 0.3 &&
-      ball.vel.z < 0
+      ball.vel.z < 0 &&
+      !this.skipThisRally
     );
   }
 }
